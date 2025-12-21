@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Freq + POS: CORS + Shape</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div class="max-w-6xl mx-auto p-4 sm:p-6 space-y-4">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h1 class="text-lg font-semibold">CORS + "What did we get?"</h1>
+        <p class="text-xs text-slate-500">Shows headers, bytes, schema, top words, sample lookups, and POS tag inventory.</p>
+      </div>
+      <button id="run" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 active:scale-[0.99]">Run</button>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-xl p-3">
+      <div class="text-sm font-medium mb-2">Sample word lookups (freq sources)</div>
+      <div id="cmp" class="text-xs text-slate-500">Run to populate…</div>
+    </div>
+
+    <div id="rows" class="space-y-2"></div>
+  </div>
+
+<script type="module">
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtKB = n => (n/1024).toFixed(n<1024*100?1:0) + " KB";
+const badge = (ok, t) => `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${ok?'bg-emerald-100 text-emerald-800':'bg-rose-100 text-rose-800'}">${t}</span>`;
+const pill = t => `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-slate-100 text-slate-700">${esc(t)}</span>`;
+
+const SAMPLE_WORDS = ["you","the","and","zebra","budget","wring"];
+const freqSources = [];
+
+const topN = (pairs, n=5) => pairs.slice(0,n).map(([w,v])=>`${w} ${v}`).join(" · ");
+const topNFromObj = (obj, n=5) => {
+  const best = [];
+  for (const [w, v0] of Object.entries(obj)) {
+    const v = +v0;
+    if (!Number.isFinite(v)) continue;
+    if (best.length < n) { best.push([w,v]); best.sort((a,b)=>a[1]-b[1]); continue; }
+    if (v > best[0][1]) { best[0] = [w,v]; best.sort((a,b)=>a[1]-b[1]); }
+  }
+  return best.sort((a,b)=>b[1]-a[1]);
+};
+
+const tests = [
+  {
+    name: "Datamuse API (word+POS+freq+defs)",
+    kind: "fetch-json",
+    url: "https://api.datamuse.com/words?sp=example&qe=sp&md=fpd&max=1",
+    analyze: (d) => {
+      const w = d[0] || {};
+      const pos = w.tags?.find(t => /^[nvadj]+$/.test(t)) || '?';
+      const freq = w.tags?.find(t => t.startsWith('f:'))?.slice(2) || '?';
+      return {
+        unit: "per-million freq (Google Books Ngrams)",
+        shape: `array of {word, score, tags[], defs[]}`,
+        top: `"${w.word}" → POS: ${pos}, freq: ${freq}/M`,
+        notes: `defs: ${w.defs?.length || 0}, API: no key, 100k/day`,
+        sample: `tags: ${(w.tags||[]).join(', ')}`,
+        extra: w.defs?.[0]?.slice(0,80) || "—",
+      };
+    }
+  },
+  {
+    name: "Datamuse: bulk lookup test",
+    kind: "fetch-json",
+    url: "https://api.datamuse.com/words?sp=budget&qe=sp&md=fp&max=1",
+    analyze: (d) => {
+      const w = d[0] || {};
+      const pos = w.tags?.filter(t => /^[nvadj]+$/.test(t)).join(',') || '?';
+      const freq = w.tags?.find(t => t.startsWith('f:'))?.slice(2) || '?';
+      freqSources.push({ 
+        name: "Datamuse", 
+        unit: "/M", 
+        get: async (word) => {
+          try {
+            const r = await fetch(`https://api.datamuse.com/words?sp=${word}&qe=sp&md=fp&max=1`);
+            const j = await r.json();
+            return j[0]?.tags?.find(t => t.startsWith('f:'))?.slice(2) || null;
+          } catch { return null; }
+        },
+        cached: new Map()
+      });
+      return {
+        unit: "per-million (realtime API)",
+        shape: `single word lookup`,
+        top: `"${w.word}" → POS: ${pos}, freq: ${freq}`,
+        notes: `Note: API calls per lookup, slower`,
+        sample: `Full tags: ${(w.tags||[]).join(', ')}`,
+      };
+    }
+  },
+  {
+    name: "SUBTLEX (subtlex-word-frequencies) index.json",
+    kind: "fetch-json",
+    url: "https://cdn.jsdelivr.net/npm/subtlex-word-frequencies@2.0.0/index.json",
+    analyze: (d) => {
+      const first = d?.[0] ?? {};
+      const keys = Object.keys(first);
+      const wordKey = keys.includes("word") ? "word" : keys[0];
+      const countKey = keys.includes("count") ? "count" : keys.find(k => /count|freq|value/i.test(k));
+      const map = new Map(d.map(x => [String(x[wordKey]).toLowerCase(), +x[countKey]]));
+      freqSources.push({ name:"SUBTLEX", unit:"count", get:w=>map.get(w.toLowerCase()) ?? null });
+      const sorted = d.length>2 ? (+d[0][countKey] >= +d[1][countKey]) : null;
+      return {
+        unit: "raw subtitle count (SUBTLEXus-style)",
+        shape: `array(${d.length.toLocaleString()}) of {${keys.join(", ")}}`,
+        top: topN(d.slice(0,5).map(x=>[x[wordKey], x[countKey]])),
+        notes: `sorted_desc=${sorted}`,
+        sample: SAMPLE_WORDS.map(w=>`${w}:${map.get(w)??"—"}`).join(" · "),
+      };
+    }
+  },
+  {
+    name: "wordfreq-en-25000 (JSON)",
+    kind: "fetch-json",
+    url: "https://cdn.jsdelivr.net/gh/aparrish/wordfreq-en-25000@main/wordfreq-en-25000-log.json",
+    analyze: (d) => {
+      const map = new Map(d.map(([w,v]) => [String(w).toLowerCase(), +v]));
+      freqSources.push({ name:"wordfreq-25k", unit:"log10", get:w=>map.get(w.toLowerCase()) ?? null });
+      const vals = d.slice(0,2000).map(x=>+x[1]).filter(Number.isFinite);
+      const min = Math.min(...vals), max = Math.max(...vals);
+      const sorted = d.length>2 ? (+d[0][1] >= +d[1][1]) : null;
+      const lin = (x)=>Number.isFinite(x)?(10**x).toExponential(2):"—";
+      return {
+        unit: "log10 frequency score (wordfreq-derived)",
+        shape: `array(${d.length.toLocaleString()}) of [word, score]`,
+        top: topN(d.slice(0,5).map(([w,v])=>[w, v.toFixed(2)])),
+        notes: `sorted_desc=${sorted} · lin("the")≈${lin(map.get("the"))}`,
+        sample: SAMPLE_WORDS.map(w=>`${w}:${map.get(w)?.toFixed(2)??"—"}`).join(" · "),
+        range: `score_range≈[${min.toFixed(2)}, ${max.toFixed(2)}]`,
+      };
+    }
+  },
+  {
+    name: "google-10000-english (txt)",
+    kind: "fetch-text",
+    url: "https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english.txt",
+    analyze: (t) => {
+      const words = t.trim().split(/\r?\n/);
+      const map = new Map(words.map((w,i) => [w.toLowerCase(), i+1]));
+      freqSources.push({ name:"google-10k", unit:"rank", get:w=>map.get(w.toLowerCase()) ?? null });
+      return {
+        unit: "rank (1=most common, from Google Trillion Word)",
+        shape: `text lines=${words.length.toLocaleString()}, one word per line`,
+        top: words.slice(0,8).join(", "),
+        notes: `no counts, just rank order`,
+        sample: SAMPLE_WORDS.map(w=>`${w}:#${map.get(w)??"—"}`).join(" · "),
+      };
+    }
+  },
+  {
+    name: "FrequencyWords en_50k (txt)",
+    kind: "fetch-text",
+    url: "https://cdn.jsdelivr.net/gh/hermitdave/FrequencyWords@master/content/2018/en/en_50k.txt",
+    analyze: (t) => {
+      const lines = t.trim().split(/\r?\n/);
+      const take = lines.slice(0,5).map(s=>{
+        const [w,c] = s.split(/\s+/);
+        return [w, +c];
+      });
+      const map = new Map(lines.map(s=>{
+        const [w,c] = s.split(/\s+/);
+        return [String(w).toLowerCase(), +c];
+      }));
+      freqSources.push({ name:"FreqWords", unit:"count", get:w=>map.get(w.toLowerCase()) ?? null });
+      const sorted = take.length>1 ? (take[0][1] >= take[1][1]) : null;
+      return {
+        unit: "raw count (OpenSubtitles-derived)",
+        shape: `text lines=${lines.length.toLocaleString()} "word count"`,
+        top: topN(take),
+        notes: `sorted_desc=${sorted}`,
+        sample: SAMPLE_WORDS.map(w=>`${w}:${map.get(w)?.toLocaleString()??"—"}`).join(" · "),
+      };
+    }
+  },
+  {
+    name: "dwyl/english-words (JSON)",
+    kind: "fetch-json",
+    url: "https://raw.githubusercontent.com/dwyl/english-words/master/words_dictionary.json",
+    analyze: (d) => {
+      const keys = Object.keys(d);
+      const map = new Set(keys.map(k=>k.toLowerCase()));
+      return {
+        unit: "boolean (word exists)",
+        shape: `object keys=${keys.length.toLocaleString()} → {word: 1}`,
+        top: keys.slice(0,8).join(", "),
+        notes: `validation only, no frequency`,
+        sample: SAMPLE_WORDS.map(w=>`${w}:${map.has(w)?"✓":"✗"}`).join(" · "),
+        extra: `Last 5: ${keys.slice(-5).join(", ")}`,
+      };
+    }
+  },
+  {
+    name: "WebstersDictionary (JSON) — POS + defs",
+    kind: "fetch-json",
+    url: "https://raw.githubusercontent.com/ssvivian/WebstersDictionary/master/dictionary.json",
+    analyze: (d) => {
+      const keys = Object.keys(d);
+      const posSet = new Set();
+      let withSyn = 0;
+      keys.slice(0,5000).forEach(k => {
+        const e = d[k];
+        if (e?.pos) posSet.add(e.pos);
+        if (e?.synonyms) withSyn++;
+      });
+      const sample = d[keys[100]] || {};
+      const lookup = w => d[w.toUpperCase()] || d[w] || null;
+      return {
+        unit: "dictionary entry (POS, defs, synonyms)",
+        shape: `object keys=${keys.length.toLocaleString()} → {word, pos, definitions[], synonyms}`,
+        top: `POS tags found: ${[...posSet].slice(0,10).join(", ")}`,
+        notes: `~${Math.round(withSyn/50)}% have synonyms (sampled 5k)`,
+        sample: SAMPLE_WORDS.map(w=>{
+          const e = lookup(w);
+          return `${w}:${e?.pos || "—"}`;
+        }).join(" · "),
+        extra: `Sample def: "${sample?.definitions?.[0]?.slice(0,60)}…"`,
+      };
+    }
+  },
+  {
+    name: "word_freq_32k.json",
+    kind: "fetch-json",
+    url: "https://cdn.jsdelivr.net/gh/BilboBlockins/word-frequency-list-json@master/word_freq_32k.json",
+    analyze: (d) => {
+      const keys = Object.keys(d);
+      const n = keys.length;
+      const get = w => d[w.toLowerCase()] ?? d[w] ?? null;
+      freqSources.push({ name:"word_freq_32k", unit:"count", get });
+      const top = topNFromObj(d, 5);
+      const sample = SAMPLE_WORDS.map(w=>`${w}:${get(w)?.toLocaleString()??"—"}`).join(" · ");
+      return {
+        unit: "raw count (large corpus)",
+        shape: `object keys=${n.toLocaleString()} word→count`,
+        top: topN(top.map(([w,v])=>[w, v.toLocaleString()])),
+        notes: `very large magnitudes`,
+        sample,
+      };
+    }
+  },
+  {
+    name: "POS: compromise (ESM)",
+    kind: "import",
+    url: "https://esm.sh/compromise@14.14.3",
+    analyze: async (m) => {
+      const nlp = m.default || m.nlp || m;
+      const sent = "The quick brown fox jumps over 13 lazy dogs.";
+      const doc = nlp(sent);
+      const terms = doc.terms().out("json");
+      const toks = terms.map(t => t.text);
+      const tags = terms.map(t => [t.text, Object.keys(t.tags||{})]);
+      const uniq = [...new Set(tags.flatMap(x=>x[1]))].sort();
+      return {
+        unit: "token tags (compromise tagset)",
+        shape: `terms=${terms.length} (json terms)`,
+        top: toks.slice(0,8).join(" · "),
+        notes: `unique_tags=${uniq.length}`,
+        sample: tags.slice(0,8).map(([w,ts])=>`${w}/${(ts[0]||"—")}`).join(" "),
+        extra: `tags: ${uniq.slice(0,20).join(", ")}${uniq.length>20?"…":""}`,
+      };
+    }
+  },
+  {
+    name: "POS: wink-pos-tagger (ESM)",
+    kind: "import",
+    url: "https://esm.sh/wink-pos-tagger@2.2.2",
+    analyze: async (m) => {
+      const factory = m.default || m;
+      const tagger = factory();
+      const sent = "The quick brown fox jumps over 13 lazy dogs.";
+      const out = tagger.tagSentence(sent);
+      const uniq = [...new Set(out.map(x=>x.pos))].sort();
+      return {
+        unit: "Penn Treebank POS tags",
+        shape: `tokens=${out.length} {value, pos}`,
+        top: out.slice(0,8).map(x=>`${x.value}/${x.pos}`).join(" "),
+        notes: `tags: ${uniq.join(", ")}`,
+        sample: out.map(x=>`${x.value}/${x.pos}`).join(" "),
+      };
+    }
+  },
+];
+
+const renderRows = rows => $("#rows").innerHTML = rows.map(r => {
+  const meta = [
+    r.ct && `ct:${r.ct}`,
+    r.cl && `cl:${r.cl}`,
+    r.bytes!=null && `bytes:${fmtKB(r.bytes)}`,
+  ].filter(Boolean).join(" · ");
+  const kv = (k,v) => v==null? "" : `<div class="flex gap-2"><div class="w-28 text-slate-500">${esc(k)}</div><div class="min-w-0 break-words">${esc(v)}</div></div>`;
+  return `
+  <details class="bg-white border border-slate-200 rounded-xl p-3" ${r.ok?"open":""}>
+    <summary class="cursor-pointer select-none list-none">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="font-medium text-sm truncate">${esc(r.name)}</div>
+          <div class="text-[11px] text-slate-500 break-all">${esc(r.url)}</div>
+          <div class="mt-1 text-[11px] text-slate-500">${esc(meta || "")}</div>
+        </div>
+        <div class="shrink-0 flex items-center gap-2">
+          ${badge(r.ok, r.ok ? "OK" : "FAIL")}
+          <span class="text-[11px] text-slate-500">${r.ms}ms</span>
+        </div>
+      </div>
+    </summary>
+
+    <div class="mt-3 grid gap-2 text-xs">
+      <div class="flex flex-wrap gap-2">
+        ${r.kind ? pill(r.kind) : ""} ${r.unit ? pill(r.unit) : ""} ${r.shape ? pill(r.shape) : ""}
+        ${r.range ? pill(r.range) : ""} ${r.notes ? pill(r.notes) : ""}
+      </div>
+      <div class="font-mono bg-slate-50 border border-slate-200 rounded-lg p-2 whitespace-pre-wrap break-words">
+${esc(r.out || "")}
+      </div>
+      <div class="grid gap-1">
+        ${kv("top", r.top)}
+        ${kv("sample", r.sample)}
+        ${kv("extra", r.extra)}
+      </div>
+    </div>
+  </details>`;
+}).join("");
+
+async function fetchWithMeta(url, as){
+  const res = await fetch(url, { cache:"no-store" });
+  const ct = res.headers.get("content-type") || "";
+  const cl = res.headers.get("content-length") || "";
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (as === "json") {
+    const d = await res.json();
+    const bytes = new TextEncoder().encode(JSON.stringify(d)).length;
+    return { d, ct, cl, bytes };
+  } else {
+    const t = await res.text();
+    const bytes = new TextEncoder().encode(t).length;
+    return { d:t, ct, cl, bytes };
+  }
+}
+
+async function runOne(t){
+  const t0 = performance.now();
+  try{
+    let payload, ct="", cl="", bytes=null;
+    if (t.kind === "fetch-json") ({ d:payload, ct, cl, bytes } = await fetchWithMeta(t.url, "json"));
+    if (t.kind === "fetch-text") ({ d:payload, ct, cl, bytes } = await fetchWithMeta(t.url, "text"));
+    if (t.kind === "import") {
+      const mod = await import(t.url);
+      payload = mod;
+      bytes = null;
+    }
+
+    const a = await t.analyze(payload);
+    return {
+      ...t,
+      ok:true,
+      ms: Math.round(performance.now()-t0),
+      ct, cl, bytes,
+      ...a,
+      out: a?.sample || a?.top || "OK"
+    };
+  } catch (e) {
+    return { ...t, ok:false, ms: Math.round(performance.now()-t0), out: String(e?.message||e) };
+  }
+}
+
+function renderCompare(){
+  const syncSources = freqSources.filter(s => typeof s.get !== 'function' || !s.get.constructor.name.includes('Async'));
+  const cols = syncSources.map(s=>s.name);
+  if (!cols.length) { $("#cmp").textContent = "No sync freq sources loaded"; return; }
+  const head = `
+    <div class="grid" style="grid-template-columns: 6rem repeat(${cols.length}, minmax(8rem, 1fr));">
+      <div class="text-[11px] text-slate-500 font-medium">word</div>
+      ${cols.map(c=>`<div class="text-[11px] text-slate-500 font-medium">${esc(c)}</div>`).join("")}
+    </div>`;
+  const rows = SAMPLE_WORDS.map(w => `
+    <div class="grid gap-x-2 py-1 border-t border-slate-100" style="grid-template-columns: 6rem repeat(${cols.length}, minmax(8rem, 1fr));">
+      <div class="font-mono text-xs">${esc(w)}</div>
+      ${syncSources.map(s=>{
+        const v = typeof s.get === 'function' ? s.get(w) : null;
+        const display = v == null ? "—" : (typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2)) : String(v));
+        return `<div class="font-mono text-xs text-slate-700">${esc(display)} <span class="text-[10px] text-slate-400">${esc(s.unit)}</span></div>`;
+      }).join("")}
+    </div>`).join("");
+  $("#cmp").innerHTML = `<div class="overflow-x-auto">${head}${rows}</div>`;
+}
+
+async function runAll(){
+  freqSources.length = 0;
+  $("#cmp").textContent = "Running…";
+  renderRows(tests.map(t => ({...t, ok:false, ms:"—", out:"Running…"})));
+
+  const rows = [];
+  for (const t of tests) {
+    rows.push(await runOne(t));
+    renderRows(rows.concat(tests.slice(rows.length).map(x => ({...x, ok:false, ms:"—", out:"Pending…"}))));
+  }
+  renderCompare();
+}
+
+$("#run").onclick = runAll;
+runAll();
+</script>
+</body>
+</html>
