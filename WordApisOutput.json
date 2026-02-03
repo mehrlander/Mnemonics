@@ -1,0 +1,498 @@
+{
+  "generated": "2026-02-03T03:16:37.935Z",
+  "purpose": "Documentation of word frequency and POS tagging APIs",
+  "apis": [
+    {
+      "name": "Datamuse API (word+POS+freq+defs)",
+      "status": "success",
+      "type": "fetch-json",
+      "endpoint": {
+        "url": "https://api.datamuse.com/words?sp=example&qe=sp&md=fpd&max=1",
+        "method": "GET"
+      },
+      "response": {
+        "responseTimeMs": 443,
+        "headers": {
+          "contentType": "application/json",
+          "contentLength": "385"
+        },
+        "sizeBytes": 673,
+        "sizeKB": "0.66"
+      },
+      "dataStructure": {
+        "shape": "array of {word, score, tags[], defs[]}",
+        "unit": "per-million freq (Google Books Ngrams)"
+      },
+      "examples": {
+        "topValues": "\"example\" → POS: n, freq: 295.866105/M",
+        "sampleLookups": "tags: query, n, v, f:295.866105",
+        "additional": "n\tSomething that is representative of all such things in a group. "
+      },
+      "notes": "defs: 7, API: no key, 100k/day",
+      "corsEnabled": true
+    },
+    {
+      "name": "Datamuse: bulk lookup test",
+      "status": "success",
+      "type": "fetch-json",
+      "endpoint": {
+        "url": "https://api.datamuse.com/words?sp=budget&qe=sp&md=fp&max=1",
+        "method": "GET"
+      },
+      "response": {
+        "responseTimeMs": 95,
+        "headers": {
+          "contentType": "application/json",
+          "contentLength": "83"
+        },
+        "sizeBytes": 83,
+        "sizeKB": "0.08"
+      },
+      "dataStructure": {
+        "shape": "single word lookup",
+        "unit": "per-million (realtime API)"
+      },
+      "examples": {
+        "topValues": "\"budget\" → POS: n,adj,v, freq: 29.505647",
+        "sampleLookups": "Full tags: query, n, adj, v, f:29.505647"
+      },
+      "notes": "Note: API calls per lookup, slower",
+      "corsEnabled": true
+    },
+    {
+      "name": "SUBTLEX (subtlex-word-frequencies) index.json",
+      "status": "success",
+      "type": "fetch-json",
+      "endpoint": {
+        "url": "https://cdn.jsdelivr.net/npm/subtlex-word-frequencies@2.0.0/index.json",
+        "method": "GET"
+      },
+      "response": {
+        "responseTimeMs": 478,
+        "headers": {
+          "contentType": "application/json; charset=utf-8",
+          "contentLength": "423703"
+        },
+        "sizeBytes": 2274436,
+        "sizeKB": "2221.13"
+      },
+      "dataStructure": {
+        "shape": "array(74,286) of {word, count}",
+        "unit": "raw subtitle count (SUBTLEXus-style)"
+      },
+      "examples": {
+        "topValues": "you 2134713 · I 2038529 · the 1501908 · to 1156570 · s 1057301",
+        "sampleLookups": "you:2134713 · the:1501908 · and:682780 · zebra:128 · budget:513 · wring:62"
+      },
+      "notes": "sorted_desc=true",
+      "corsEnabled": true
+    },
+    {
+      "name": "wordfreq-en-25000 (JSON)",
+      "status": "success",
+      "type": "fetch-json",
+      "endpoint": {
+        "url": "https://cdn.jsdelivr.net/gh/aparrish/wordfreq-en-25000@main/wordfreq-en-25000-log.json",
+        "method": "GET"
+      },
+      "response": {
+        "responseTimeMs": 1145,
+        "headers": {
+          "contentType": "application/json; charset=utf-8",
+          "contentLength": "131903"
+        },
+        "sizeBytes": 519769,
+        "sizeKB": "507.59"
+      },
+      "dataStructure": {
+        "shape": "array(25,000) of [word, score]",
+        "unit": "log10 frequency score (wordfreq-derived)",
+        "range": "score_range≈[-9.85, -2.83]"
+      },
+      "examples": {
+        "topValues": "the -2.83 · of -3.57 · to -3.59 · and -3.66 · a -3.78",
+        "sampleLookups": "you:-4.63 · the:-2.83 · and:-3.66 · zebra:-12.94 · budget:-9.62 · wring:—"
+      },
+      "notes": "sorted_desc=true · lin(\"the\")≈1.47e-3",
+      "corsEnabled": true
+    },
+    {
+      "name": "google-10000-english (txt)",
+      "status": "success",
+      "type": "fetch-text",
+      "endpoint": {
+        "url": "https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english.txt",
+        "method": "GET"
+      },
+      "response": {
+        "responseTimeMs": 128,
+        "headers": {
+          "contentType": "text/plain; charset=utf-8",
+          "contentLength": "35353"
+        },
+        "sizeBytes": 75888,
+        "sizeKB": "74.11"
+      },
+      "dataStructure": {
+        "shape": "text lines=10,000, one word per line",
+        "unit": "rank (1=most common, from Google Trillion Word)"
+      },
+      "examples": {
+        "topValues": "the, of, and, to, a, in, for, is",
+        "sampleLookups": "you:#15 · the:#1 · and:#3 · zebra:#— · budget:#1383 · wring:#—"
+      },
+      "notes": "no counts, just rank order",
+      "corsEnabled": true
+    },
+    {
+      "name": "FrequencyWords en_50k (txt)",
+      "status": "success",
+      "type": "fetch-text",
+      "endpoint": {
+        "url": "https://cdn.jsdelivr.net/gh/hermitdave/FrequencyWords@master/content/2018/en/en_50k.txt",
+        "method": "GET"
+      },
+      "response": {
+        "responseTimeMs": 1019,
+        "headers": {
+          "contentType": "text/plain; charset=utf-8",
+          "contentLength": "283856"
+        },
+        "sizeBytes": 622749,
+        "sizeKB": "608.15"
+      },
+      "dataStructure": {
+        "shape": "text lines=50,000 \"word count\"",
+        "unit": "raw count (OpenSubtitles-derived)"
+      },
+      "examples": {
+        "topValues": "you 28787591 · i 27086011 · the 22761659 · to 17099834 · a 14484562",
+        "sampleLookups": "you:28,787,591 · the:22,761,659 · and:10,572,938 · zebra:1,752 · budget:9,026 · wring:874"
+      },
+      "notes": "sorted_desc=true",
+      "corsEnabled": true
+    },
+    {
+      "name": "dwyl/english-words (JSON)",
+      "status": "success",
+      "type": "fetch-json",
+      "endpoint": {
+        "url": "https://raw.githubusercontent.com/dwyl/english-words/master/words_dictionary.json",
+        "method": "GET"
+      },
+      "response": {
+        "responseTimeMs": 2495,
+        "headers": {
+          "contentType": "text/plain; charset=utf-8",
+          "contentLength": "1167036"
+        },
+        "sizeBytes": 5345176,
+        "sizeKB": "5219.90"
+      },
+      "dataStructure": {
+        "shape": "object keys=370,100 → {word: 1}",
+        "unit": "boolean (word exists)"
+      },
+      "examples": {
+        "topValues": "a, aa, aaa, aah, aahed, aahing, aahs, aal",
+        "sampleLookups": "you:✓ · the:✓ · and:✓ · zebra:✓ · budget:✓ · wring:✓",
+        "additional": "Last 5: zwinglianism, zwinglianist, zwitter, zwitterion, zwitterionic"
+      },
+      "notes": "validation only, no frequency",
+      "corsEnabled": true
+    },
+    {
+      "name": "WebstersDictionary (JSON) — POS + defs",
+      "status": "success",
+      "type": "fetch-json",
+      "endpoint": {
+        "url": "https://raw.githubusercontent.com/ssvivian/WebstersDictionary/master/dictionary.json",
+        "method": "GET"
+      },
+      "response": {
+        "responseTimeMs": 4622,
+        "headers": {
+          "contentType": "text/plain; charset=utf-8",
+          "contentLength": "7996573"
+        },
+        "sizeBytes": 24271315,
+        "sizeKB": "23702.46"
+      },
+      "dataStructure": {
+        "shape": "object keys=113,376 → {word, pos, definitions[], synonyms}",
+        "unit": "dictionary entry (POS, defs, synonyms)"
+      },
+      "examples": {
+        "topValues": "POS tags found: n., prep., a., v., adv., p., interj., conj., pron.",
+        "sampleLookups": "you:— · the:— · and:— · zebra:— · budget:— · wring:—",
+        "additional": "Sample def: \"Abdicating; renouncing; -- followed by of. Monks abdicant of…\""
+      },
+      "notes": "~4% have synonyms (sampled 5k)",
+      "corsEnabled": true
+    },
+    {
+      "name": "word_freq_32k.json",
+      "status": "success",
+      "type": "fetch-json",
+      "endpoint": {
+        "url": "https://cdn.jsdelivr.net/gh/BilboBlockins/word-frequency-list-json@master/word_freq_32k.json",
+        "method": "GET"
+      },
+      "response": {
+        "responseTimeMs": 895,
+        "headers": {
+          "contentType": "application/json; charset=utf-8",
+          "contentLength": "241112"
+        },
+        "sizeBytes": 544126,
+        "sizeKB": "531.37"
+      },
+      "dataStructure": {
+        "shape": "object keys=32,641 word→count",
+        "unit": "raw count (large corpus)"
+      },
+      "examples": {
+        "topValues": "the 936,350,691 · and 524,890,456 · of 486,715,646 · to 428,396,439 · a 329,062,259",
+        "sampleLookups": "you:68,408,394 · the:936,350,691 · and:524,890,456 · zebra:36,160 · budget:1,807,064 · wring:—"
+      },
+      "notes": "very large magnitudes",
+      "corsEnabled": true
+    },
+    {
+      "name": "POS: compromise (ESM)",
+      "status": "success",
+      "type": "import",
+      "endpoint": {
+        "url": "https://esm.sh/compromise@14.14.3",
+        "method": "ESM import"
+      },
+      "response": {
+        "responseTimeMs": 1024,
+        "headers": {
+          "contentType": "application/javascript"
+        },
+        "sizeBytes": null
+      },
+      "dataStructure": {
+        "shape": "terms=9 (json terms)",
+        "unit": "token tags (compromise tagset)"
+      },
+      "examples": {
+        "topValues": "The · quick · brown · fox · jumps · over · 13 · lazy",
+        "sampleLookups": "The/— quick/— brown/— fox/— jumps/— over/— 13/— lazy/—",
+        "additional": "tags: "
+      },
+      "notes": "unique_tags=0",
+      "corsEnabled": true
+    },
+    {
+      "name": "POS: wink-pos-tagger (ESM)",
+      "status": "success",
+      "type": "import",
+      "endpoint": {
+        "url": "https://esm.sh/wink-pos-tagger@2.2.2",
+        "method": "ESM import"
+      },
+      "response": {
+        "responseTimeMs": 1324,
+        "headers": {
+          "contentType": "application/javascript"
+        },
+        "sizeBytes": null
+      },
+      "dataStructure": {
+        "shape": "tokens=10 {value, pos}",
+        "unit": "Penn Treebank POS tags"
+      },
+      "examples": {
+        "topValues": "The/DT quick/JJ brown/JJ fox/NN jumps/NNS over/IN 13/CD lazy/NN",
+        "sampleLookups": "The/DT quick/JJ brown/JJ fox/NN jumps/NNS over/IN 13/CD lazy/NN dogs/NNS ./."
+      },
+      "notes": "tags: ., CD, DT, IN, JJ, NN, NNS",
+      "corsEnabled": true
+    }
+  ],
+  "frequencyComparison": {
+    "description": "Cross-source word frequency comparison",
+    "sources": [
+      {
+        "name": "SUBTLEX",
+        "unit": "count"
+      },
+      {
+        "name": "wordfreq-25k",
+        "unit": "log10"
+      },
+      {
+        "name": "google-10k",
+        "unit": "rank"
+      },
+      {
+        "name": "FreqWords",
+        "unit": "count"
+      },
+      {
+        "name": "word_freq_32k",
+        "unit": "count"
+      }
+    ],
+    "sampleWords": [
+      {
+        "word": "you",
+        "results": {
+          "SUBTLEX": {
+            "value": 2134713,
+            "unit": "count"
+          },
+          "wordfreq-25k": {
+            "value": -4.6284,
+            "unit": "log10"
+          },
+          "google-10k": {
+            "value": 15,
+            "unit": "rank"
+          },
+          "FreqWords": {
+            "value": 28787591,
+            "unit": "count"
+          },
+          "word_freq_32k": {
+            "value": 68408394,
+            "unit": "count"
+          }
+        }
+      },
+      {
+        "word": "the",
+        "results": {
+          "SUBTLEX": {
+            "value": 1501908,
+            "unit": "count"
+          },
+          "wordfreq-25k": {
+            "value": -2.8319,
+            "unit": "log10"
+          },
+          "google-10k": {
+            "value": 1,
+            "unit": "rank"
+          },
+          "FreqWords": {
+            "value": 22761659,
+            "unit": "count"
+          },
+          "word_freq_32k": {
+            "value": 936350691,
+            "unit": "count"
+          }
+        }
+      },
+      {
+        "word": "and",
+        "results": {
+          "SUBTLEX": {
+            "value": 682780,
+            "unit": "count"
+          },
+          "wordfreq-25k": {
+            "value": -3.6613,
+            "unit": "log10"
+          },
+          "google-10k": {
+            "value": 3,
+            "unit": "rank"
+          },
+          "FreqWords": {
+            "value": 10572938,
+            "unit": "count"
+          },
+          "word_freq_32k": {
+            "value": 524890456,
+            "unit": "count"
+          }
+        }
+      },
+      {
+        "word": "zebra",
+        "results": {
+          "SUBTLEX": {
+            "value": 128,
+            "unit": "count"
+          },
+          "wordfreq-25k": {
+            "value": -12.94,
+            "unit": "log10"
+          },
+          "google-10k": {
+            "value": null,
+            "unit": "rank"
+          },
+          "FreqWords": {
+            "value": 1752,
+            "unit": "count"
+          },
+          "word_freq_32k": {
+            "value": 36160,
+            "unit": "count"
+          }
+        }
+      },
+      {
+        "word": "budget",
+        "results": {
+          "SUBTLEX": {
+            "value": 513,
+            "unit": "count"
+          },
+          "wordfreq-25k": {
+            "value": -9.6243,
+            "unit": "log10"
+          },
+          "google-10k": {
+            "value": 1383,
+            "unit": "rank"
+          },
+          "FreqWords": {
+            "value": 9026,
+            "unit": "count"
+          },
+          "word_freq_32k": {
+            "value": 1807064,
+            "unit": "count"
+          }
+        }
+      },
+      {
+        "word": "wring",
+        "results": {
+          "SUBTLEX": {
+            "value": 62,
+            "unit": "count"
+          },
+          "wordfreq-25k": {
+            "value": null,
+            "unit": "log10"
+          },
+          "google-10k": {
+            "value": null,
+            "unit": "rank"
+          },
+          "FreqWords": {
+            "value": 874,
+            "unit": "count"
+          },
+          "word_freq_32k": {
+            "value": null,
+            "unit": "count"
+          }
+        }
+      }
+    ]
+  },
+  "summary": {
+    "totalAPIs": 11,
+    "successful": 11,
+    "errors": 0,
+    "corsEnabledAPIs": 11
+  }
+}
