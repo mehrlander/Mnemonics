@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Major System Studio</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1a1a1a; --muted: #6b6b6b;
+    --line: #e3e3df; --accent: #0f62fe; --accent-ink: #ffffff;
+    --good: #1a7f37; --bad: #c0392b; --chip: #eef1f6; --chip-ink: #33415c;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14151a; --panel: #1d1f26; --ink: #e8e8e6; --muted: #9a9aa0;
+      --line: #2c2f38; --accent: #6ea8ff; --accent-ink: #10131c;
+      --good: #4ac26b; --bad: #ff7b6b; --chip: #262b36; --chip-ink: #b9c4da;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  header { max-width: 1080px; margin: 0 auto; padding: 1.6rem 1rem 0; }
+  h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0.2rem 0 1rem; font-size: 0.95rem; }
+  nav { display: flex; gap: 0.4rem; border-bottom: 1px solid var(--line); }
+  nav button {
+    appearance: none; background: none; border: none; border-bottom: 2px solid transparent;
+    padding: 0.55rem 0.9rem; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer;
+  }
+  nav button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+  main { max-width: 1080px; margin: 0 auto; padding: 1.2rem 1rem 4rem; }
+  section[hidden] { display: none; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; margin-bottom: 1rem; }
+  .card h2 { margin: 0 0 0.2rem; font-size: 1.05rem; }
+  .hint { color: var(--muted); font-size: 0.88rem; margin: 0 0 0.7rem; }
+  input[type=text], input[type=search] {
+    width: 100%; padding: 0.65rem 0.8rem; font: inherit; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .btn {
+    appearance: none; font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 0.45rem 0.9rem;
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+
+  /* Encode tab */
+  .seg { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; margin: 0.55rem 0; }
+  .seg .score { color: var(--muted); font-size: 0.8rem; margin-left: 0.2rem; }
+  .wordchip {
+    display: inline-flex; flex-direction: column; align-items: center; gap: 0;
+    background: var(--chip); color: var(--chip-ink); border-radius: 8px;
+    padding: 0.3rem 0.7rem; cursor: pointer; border: 1px solid transparent;
+  }
+  .wordchip:hover { border-color: var(--accent); }
+  .wordchip b { font-size: 1.05rem; font-weight: 700; color: var(--ink); }
+  .wordchip span { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; color: var(--muted); }
+  .alt-pop {
+    position: absolute; z-index: 30; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.18); padding: 0.4rem; max-height: 300px; overflow: auto; min-width: 180px;
+  }
+  .alt-pop button { display: block; width: 100%; text-align: left; background: none; border: none; font: inherit; color: var(--ink); padding: 0.35rem 0.55rem; border-radius: 6px; cursor: pointer; }
+  .alt-pop button:hover { background: var(--chip); }
+  .alt-pop .meta { color: var(--muted); font-size: 0.78rem; font-family: var(--mono); }
+  .decoded { font-family: var(--mono); font-size: 1.2rem; letter-spacing: 0.08em; margin-top: 0.4rem; min-height: 1.6rem; }
+  .decoded .unk { color: var(--bad); }
+
+  /* Pegs tab */
+  .peg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 0.45rem; }
+  .peg-cell {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 0.45rem 0.5rem 0.5rem;
+    cursor: pointer; text-align: left; font: inherit; color: var(--ink);
+  }
+  .peg-cell:hover { border-color: var(--accent); }
+  .peg-cell.custom { border-color: var(--good); }
+  .peg-cell .num { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); display: block; }
+  .peg-cell .word { font-weight: 700; font-size: 0.98rem; overflow-wrap: anywhere; }
+  dialog {
+    border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink);
+    max-width: 420px; width: calc(100vw - 3rem); padding: 1rem 1.1rem;
+  }
+  dialog::backdrop { background: rgba(0,0,0,0.45); }
+  .alt-list { display: flex; flex-direction: column; gap: 0.2rem; max-height: 320px; overflow: auto; margin: 0.6rem 0; }
+  .alt-list button {
+    display: flex; justify-content: space-between; gap: 0.7rem; background: none; border: 1px solid transparent;
+    font: inherit; color: var(--ink); padding: 0.4rem 0.6rem; border-radius: 8px; cursor: pointer; text-align: left;
+  }
+  .alt-list button:hover { background: var(--chip); }
+  .alt-list button.sel { border-color: var(--accent); }
+  .alt-list .meta { color: var(--muted); font-size: 0.8rem; font-family: var(--mono); white-space: nowrap; }
+
+  /* Train tab */
+  .train-wrap { max-width: 560px; margin: 0 auto; text-align: center; }
+  .train-num { font-family: var(--mono); font-size: 4.4rem; font-weight: 700; letter-spacing: 0.15em; margin: 1.2rem 0 0.6rem; }
+  .train-answer { font-size: 1.7rem; font-weight: 700; min-height: 2.4rem; margin-bottom: 0.4rem; }
+  .train-answer .alts { display: block; font-size: 0.85rem; font-weight: 400; color: var(--muted); }
+  .train-feedback { min-height: 1.5rem; font-weight: 600; }
+  .train-feedback.good { color: var(--good); }
+  .train-feedback.bad { color: var(--bad); }
+  .stat-row { display: flex; gap: 0.5rem; justify-content: center; margin-top: 1.2rem; flex-wrap: wrap; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 0.5rem 1rem; min-width: 108px;
+  }
+  .stat .v { font-size: 1.35rem; font-weight: 700; font-family: var(--mono); }
+  .stat .k { font-size: 0.78rem; color: var(--muted); }
+  .boxbar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin-top: 1rem; border: 1px solid var(--line); }
+  .boxbar div { transition: width 0.3s; }
+  .boxbar .b1 { background: #d5896f; } .boxbar .b2 { background: #dab785; }
+  .boxbar .b3 { background: #cbdd8f; }
+  .boxbar .b4 { background: #8fc2dd; } .boxbar .b5 { background: #70a37f; }
+  .legend { display: flex; gap: 0.9rem; justify-content: center; color: var(--muted); font-size: 0.78rem; margin-top: 0.35rem; }
+
+  /* Reference tab */
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 0.45rem 0.7rem; border-bottom: 1px solid var(--line); }
+  th { font-size: 0.82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  td.digit { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; }
+  td .m { color: var(--muted); }
+  kbd { font-family: var(--mono); background: var(--chip); border-radius: 4px; padding: 0.05rem 0.35rem; font-size: 0.85em; }
+
+  @media print {
+    nav, .no-print, header .sub { display: none !important; }
+    body { background: #fff; color: #000; }
+    .peg-cell { border-color: #bbb; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Major System Studio</h1>
+  <p class="sub">Turn numbers into memorable words — phonetically, with real linguistic data.
+    <span id="data-stat"></span></p>
+  <nav role="tablist" class="no-print">
+    <button role="tab" aria-selected="true" data-tab="encode">Encode</button>
+    <button role="tab" aria-selected="false" data-tab="pegs">Peg list</button>
+    <button role="tab" aria-selected="false" data-tab="train">Train</button>
+    <button role="tab" aria-selected="false" data-tab="ref">Reference</button>
+  </nav>
+</header>
+<main>
+
+<section id="tab-encode">
+  <div class="card">
+    <h2>Number → words</h2>
+    <p class="hint">Type any number (spaces and punctuation ignored). Click a word to swap alternatives for that chunk.</p>
+    <input type="text" id="enc-in" inputmode="numeric" placeholder="e.g. 3141592653 or your phone number" autocomplete="off" />
+    <div id="enc-out"></div>
+  </div>
+  <div class="card">
+    <h2>Words → number</h2>
+    <p class="hint">Type words to decode them back into digits (dictionary pronunciation first, spelling fallback marked ≈).</p>
+    <input type="text" id="dec-in" placeholder="e.g. meteor lion bomb" autocomplete="off" />
+    <div class="decoded" id="dec-out"></div>
+  </div>
+</section>
+
+<section id="tab-pegs" hidden>
+  <div class="card">
+    <div class="row" style="justify-content: space-between;">
+      <div>
+        <h2>Your peg list</h2>
+        <p class="hint">Best word per number, ranked by frequency × concreteness × noun-ness. Click a cell to choose an alternative (saved locally). Green border = your custom pick.</p>
+      </div>
+      <div class="row no-print">
+        <label class="hint" style="margin:0"><input type="checkbox" id="peg-nouns" checked /> nouns only</label>
+        <select id="peg-range" class="btn">
+          <option value="1">0–9</option>
+          <option value="2" selected>00–99</option>
+        </select>
+        <button class="btn" id="peg-copy">Copy</button>
+        <button class="btn" id="peg-print">Print</button>
+        <button class="btn" id="peg-reset">Reset picks</button>
+      </div>
+    </div>
+    <div class="peg-grid" id="peg-grid"></div>
+  </div>
+</section>
+
+<section id="tab-train" hidden>
+  <div class="card train-wrap">
+    <h2 style="text-align:center">Peg trainer</h2>
+    <p class="hint" style="text-align:center">Recall the word for the number, type it, hit <kbd>Enter</kbd>. Any dictionary word that encodes the number counts; your peg is shown after. Leitner spaced repetition, saved locally.</p>
+    <div class="row no-print" style="justify-content:center">
+      <select id="train-range" class="btn">
+        <option value="1">0–9</option>
+        <option value="2" selected>00–99</option>
+      </select>
+      <button class="btn" id="train-reset">Reset progress</button>
+    </div>
+    <div class="train-num" id="train-num">—</div>
+    <input type="text" id="train-in" placeholder="your word…" autocomplete="off" style="text-align:center; font-size:1.2rem" />
+    <div class="train-feedback" id="train-fb"></div>
+    <div class="train-answer" id="train-ans"></div>
+    <div class="row no-print" style="justify-content:center">
+      <button class="btn" id="train-show">Show answer</button>
+      <button class="btn primary" id="train-next">Next</button>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><div class="v" id="st-due">–</div><div class="k">due now</div></div>
+      <div class="stat"><div class="v" id="st-acc">–</div><div class="k">session accuracy</div></div>
+      <div class="stat"><div class="v" id="st-streak">–</div><div class="k">streak</div></div>
+      <div class="stat"><div class="v" id="st-mastered">–</div><div class="k">in box 4–5</div></div>
+    </div>
+    <div class="boxbar" id="boxbar" title="Leitner boxes 1→5"></div>
+    <div class="legend"><span>box 1 (new)</span><span>2</span><span>3</span><span>4</span><span>5 (mastered)</span></div>
+  </div>
+</section>
+
+<section id="tab-ref" hidden>
+  <div class="card">
+    <h2>The Major System in 60 seconds</h2>
+    <p>Each digit maps to a <em>consonant sound</em> (not a letter). Vowels and the consonants w, h, y are free filler,
+       so any number can be spoken as a word: <b>32</b> → M‑N → “moon”. Words are vastly easier to remember than digits —
+       to recall the number, just sound the word back out.</p>
+    <table>
+      <thead><tr><th>Digit</th><th>Sounds</th><th>Memory hook</th><th>Example</th></tr></thead>
+      <tbody id="ref-table"></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Dataset</h2>
+    <p id="ref-data" class="hint"></p>
+    <p class="hint">Encoding is phonetic via the CMU Pronouncing Dictionary, so silent letters behave correctly:
+      “knife” = 28 (n‑f), “thumb” = 13 (th‑m), “laugh” = 58 (l‑f). Candidate ranking blends word frequency
+      (SUBTLEX‑US Zipf scale), concreteness norms (Brysbaert et al. 2014, 1–5), and part of speech —
+      concrete, common nouns make the strongest mental images.</p>
+  </div>
+</section>
+
+</main>
+<dialog id="peg-dialog">
+  <h2 style="margin:0 0 0.2rem">Pick a peg for <span id="dlg-num" style="font-family:var(--mono)"></span></h2>
+  <p class="hint" id="dlg-cur"></p>
+  <input type="search" id="dlg-filter" placeholder="filter…" autocomplete="off" />
+  <div class="alt-list" id="dlg-list"></div>
+  <div class="row" style="justify-content:flex-end">
+    <button class="btn" id="dlg-default">Use default</button>
+    <button class="btn" id="dlg-close">Close</button>
+  </div>
+</dialog>
+
+<script src="MajorSystemData.js"></script>
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+
+/* ---------- data ---------- */
+const ENTRIES = [];          // {w, d, z, c, p}
+const BY_DIGITS = new Map(); // digits -> entries (peg-sorted lazily)
+const BY_WORD = new Map();   // word -> entry
+{
+  const rows = window.MAJOR_DATA.rows.split('\n');
+  for (const r of rows) {
+    const [w, d, z, c, p] = r.split('|');
+    const e = { w, d, z: +z || 0, c: +c || 0, p: p || '?' };
+    ENTRIES.push(e);
+    BY_WORD.set(w, e);
+    let arr = BY_DIGITS.get(d);
+    if (!arr) BY_DIGITS.set(d, arr = []);
+    arr.push(e);
+  }
+  $('#data-stat').textContent = `${ENTRIES.length.toLocaleString()} words loaded.`;
+  $('#ref-data').textContent =
+    `${ENTRIES.length.toLocaleString()} words · ${window.MAJOR_DATA.meta.sources}. Mapping: ${window.MAJOR_DATA.meta.mapping}.`;
+}
+
+/* Scores. zipf ∈ [0,7.5], concreteness ∈ [1,5] (0 = unknown). */
+const pegScore = e =>
+  (e.z / 7) * 0.45 +
+  (e.c ? ((e.c - 1) / 4) * 0.45 : 0.10) +
+  (e.p === 'N' ? 0.12 : 0) + (e.p === 'M' ? -0.06 : 0) + (e.p === '?' ? -0.03 : 0) -
+  Math.max(0, e.w.length - 8) * 0.012;
+const encScore = e =>
+  (e.z / 7) * 0.55 +
+  (e.c ? ((e.c - 1) / 4) * 0.32 : 0.07) +
+  (e.p === 'N' ? 0.08 : 0) + (e.p === 'M' ? -0.05 : 0);
+
+/* Number-words are phonetically valid but hopelessly confusing as mnemonics
+   ("five" encodes 88, not 5) — keep them for decoding, hide them as suggestions. */
+const CONFUSING = new Set([
+  'one','two','three','four','five','six','seven','eight','nine','ten','zero',
+  'eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen',
+  'twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety',
+  'hundred','thousand','million','billion','trillion',
+  'shit','fuck','fucker','fucking','cunt','nigger','faggot','bitch','asshole','dick','pussy',
+]);
+const sortedCache = new Map();
+function candidates(digits, { nounsOnly = false } = {}) {
+  let arr = sortedCache.get(digits);
+  if (!arr) {
+    arr = (BY_DIGITS.get(digits) || []).filter(e => !CONFUSING.has(e.w))
+      .sort((a, b) => pegScore(b) - pegScore(a));
+    sortedCache.set(digits, arr);
+  }
+  // "nouns only" also admits very concrete words with unknown/Name POS
+  // (e.g. "lily", "ivy" — SUBTLEX tags them Name, but they image as objects).
+  return nounsOnly ? arr.filter(e => e.p === 'N' || ((e.p === '?' || e.p === 'M') && e.c >= 4)) : arr;
+}
+
+/* ---------- tabs ---------- */
+$$('nav [role=tab]').forEach(btn => btn.addEventListener('click', () => {
+  $$('nav [role=tab]').forEach(b => b.setAttribute('aria-selected', b === btn));
+  ['encode', 'pegs', 'train', 'ref'].forEach(t => $('#tab-' + t).hidden = t !== btn.dataset.tab);
+  if (btn.dataset.tab === 'pegs') renderPegs();
+  if (btn.dataset.tab === 'train') trainInit();
+}));
+
+/* ---------- encode: DP segmentation, k-best ---------- */
+const MAXCHUNK = 7, BEAM = 6;
+function segmentations(digits, k = 5) {
+  const n = digits.length;
+  // best[i] = top-k {score, words[]} covering digits[0..i)
+  const best = [[{ s: 0, words: [] }]];
+  for (let i = 1; i <= n; i++) {
+    const cand = [];
+    for (let len = 1; len <= MAXCHUNK && len <= i; len++) {
+      const piece = digits.slice(i - len, i);
+      const opts = candidates(piece).slice(0, 8)
+        .sort((a, b) => encScore(b) - encScore(a)).slice(0, 3);
+      if (!opts.length) continue;
+      for (const prev of best[i - len]) {
+        for (const e of opts) {
+          // quality-weighted coverage minus a fixed per-word cost:
+          // long chunks win unless their words are much weaker.
+          cand.push({
+            s: prev.s + encScore(e) * len - 0.45,
+            words: prev.words.concat([{ e, piece }]),
+          });
+        }
+      }
+    }
+    cand.sort((a, b) => b.s - a.s);
+    // dedupe by word sequence
+    const seen = new Set(), keep = [];
+    for (const c of cand) {
+      const key = c.words.map(x => x.e.w).join(' ');
+      if (seen.has(key)) continue;
+      seen.add(key); keep.push(c);
+      if (keep.length >= BEAM) break;
+    }
+    best.push(keep);
+  }
+  return (best[n] || []).slice(0, k);
+}
+
+let altPop = null;
+function closePop() { if (altPop) { altPop.remove(); altPop = null; } }
+document.addEventListener('click', e => { if (altPop && !altPop.contains(e.target)) closePop(); }, true);
+
+function renderEncode() {
+  const digits = $('#enc-in').value.replace(/\D/g, '');
+  const out = $('#enc-out');
+  out.innerHTML = '';
+  closePop();
+  if (!digits) return;
+  if (digits.length > 40) { out.innerHTML = '<p class="hint">Keep it under 40 digits.</p>'; return; }
+  const segs = segmentations(digits);
+  if (!segs.length) { out.innerHTML = '<p class="hint">No segmentation found.</p>'; return; }
+  segs.forEach((seg, i) => {
+    const div = document.createElement('div');
+    div.className = 'seg';
+    seg.words.forEach((wp, j) => {
+      const chip = document.createElement('button');
+      chip.className = 'wordchip';
+      chip.innerHTML = `<b>${wp.e.w}</b><span>${wp.piece}</span>`;
+      chip.title = metaLine(wp.e);
+      chip.addEventListener('click', ev => {
+        ev.stopPropagation();
+        openAltPop(chip, wp.piece, alt => { wp.e = alt; renderSegRow(div, seg, i); });
+      });
+      div.appendChild(chip);
+    });
+    if (i === 0) {
+      const tag = document.createElement('span');
+      tag.className = 'score';
+      tag.textContent = 'best';
+      div.appendChild(tag);
+    }
+    out.appendChild(div);
+  });
+}
+function renderSegRow(div, seg) {
+  div.querySelectorAll('.wordchip').forEach((chip, j) => {
+    const wp = seg.words[j];
+    chip.innerHTML = `<b>${wp.e.w}</b><span>${wp.piece}</span>`;
+    chip.title = metaLine(wp.e);
+  });
+}
+const POSNAME = { N: 'noun', V: 'verb', J: 'adj', A: 'adv', M: 'name', '?': '' };
+const metaLine = e => `zipf ${e.z || '–'} · concreteness ${e.c || '–'} ${POSNAME[e.p] ? '· ' + POSNAME[e.p] : ''}`;
+
+function openAltPop(anchor, piece, onPick) {
+  closePop();
+  const pop = document.createElement('div');
+  pop.className = 'alt-pop';
+  candidates(piece).slice(0, 25).forEach(e => {
+    const b = document.createElement('button');
+    b.innerHTML = `${e.w} <span class="meta">${e.c ? 'c' + e.c : ''}${e.p === 'N' ? ' n' : ''}</span>`;
+    b.addEventListener('click', () => { onPick(e); closePop(); });
+    pop.appendChild(b);
+  });
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = Math.min(window.innerWidth - 200, r.left + window.scrollX) + 'px';
+  pop.style.top = (r.bottom + window.scrollY + 6) + 'px';
+  altPop = pop;
+}
+$('#enc-in').addEventListener('input', renderEncode);
+
+/* ---------- decode: words -> digits ---------- */
+const LETTER_FALLBACK = [ // spelling-based approximation, digraphs first
+  [/sch/g, '06'], [/tch/g, '6'], [/ch/g, '6'], [/sh/g, '6'], [/th/g, '1'], [/ph/g, '8'], [/gh/g, '7'],
+  [/ck/g, '7'], [/ng/g, '7'], [/qu/g, '7'], [/x/g, '70'],
+  [/[sz]/g, '0'], [/[td]/g, '1'], [/n/g, '2'], [/m/g, '3'], [/r/g, '4'], [/l/g, '5'],
+  [/j/g, '6'], [/[kgcq]/g, '7'], [/[fv]/g, '8'], [/[pb]/g, '9'], [/[aeiouwhy]/g, ''],
+];
+function spellDigits(word) {
+  let s = word.toLowerCase().replace(/(.)\1/g, '$1'); // collapse doubles
+  for (const [re, d] of LETTER_FALLBACK) s = s.replace(re, d);
+  return s.replace(/\D/g, '');
+}
+$('#dec-in').addEventListener('input', () => {
+  const toks = $('#dec-in').value.trim().split(/\s+/).filter(Boolean);
+  const out = $('#dec-out');
+  out.innerHTML = '';
+  toks.forEach(t => {
+    const w = t.toLowerCase().replace(/[^a-z']/g, '');
+    const e = BY_WORD.get(w);
+    const span = document.createElement('span');
+    if (e) { span.textContent = e.d + ' '; span.title = w; }
+    else if (w) { span.innerHTML = `<span class="unk" title="not in dictionary — spelling approximation">≈${spellDigits(w)}</span> `; }
+    out.appendChild(span);
+  });
+});
+
+/* ---------- pegs ---------- */
+const LS_PICKS = 'major.pegPicks.v1';
+const picks = JSON.parse(localStorage.getItem(LS_PICKS) || '{}');
+const savePicks = () => localStorage.setItem(LS_PICKS, JSON.stringify(picks));
+
+function numbersInRange(len) {
+  const out = [];
+  const max = len === 1 ? 10 : 100;
+  for (let i = 0; i < max; i++) out.push(String(i).padStart(len, '0'));
+  return out;
+}
+function defaultPeg(num) {
+  const nounsOnly = $('#peg-nouns').checked;
+  const c = candidates(num, { nounsOnly });
+  return (c.length ? c : candidates(num))[0] || null;
+}
+function currentPeg(num) {
+  if (picks[num] && BY_WORD.has(picks[num])) return BY_WORD.get(picks[num]);
+  return defaultPeg(num);
+}
+function renderPegs() {
+  const len = +$('#peg-range').value;
+  const grid = $('#peg-grid');
+  grid.innerHTML = '';
+  for (const num of numbersInRange(len)) {
+    const e = currentPeg(num);
+    const cell = document.createElement('button');
+    cell.className = 'peg-cell' + (picks[num] ? ' custom' : '');
+    cell.innerHTML = `<span class="num">${num}</span><span class="word">${e ? e.w : '—'}</span>`;
+    cell.title = e ? metaLine(e) : '';
+    cell.addEventListener('click', () => openPegDialog(num));
+    grid.appendChild(cell);
+  }
+}
+$('#peg-range').addEventListener('change', renderPegs);
+$('#peg-nouns').addEventListener('change', renderPegs);
+$('#peg-reset').addEventListener('click', () => {
+  if (!confirm('Clear all custom peg picks?')) return;
+  for (const k of Object.keys(picks)) delete picks[k];
+  savePicks(); renderPegs();
+});
+$('#peg-copy').addEventListener('click', async () => {
+  const len = +$('#peg-range').value;
+  const text = numbersInRange(len).map(n => `${n}\t${currentPeg(n)?.w || ''}`).join('\n');
+  try { await navigator.clipboard.writeText(text); $('#peg-copy').textContent = 'Copied!'; }
+  catch { prompt('Copy your peg list:', text); }
+  setTimeout(() => $('#peg-copy').textContent = 'Copy', 1200);
+});
+$('#peg-print').addEventListener('click', () => window.print());
+
+const dlg = $('#peg-dialog');
+let dlgNum = null;
+function openPegDialog(num) {
+  dlgNum = num;
+  $('#dlg-num').textContent = num;
+  $('#dlg-filter').value = '';
+  renderDlgList();
+  dlg.showModal();
+}
+function renderDlgList() {
+  const filter = $('#dlg-filter').value.trim().toLowerCase();
+  const cur = currentPeg(dlgNum);
+  $('#dlg-cur').textContent = `current: ${cur ? cur.w : '—'}${picks[dlgNum] ? ' (custom)' : ' (default)'}`;
+  const list = $('#dlg-list');
+  list.innerHTML = '';
+  candidates(dlgNum).filter(e => !filter || e.w.includes(filter)).slice(0, 60).forEach(e => {
+    const b = document.createElement('button');
+    if (cur && e.w === cur.w) b.className = 'sel';
+    b.innerHTML = `<span>${e.w}</span><span class="meta">z${e.z || '–'} c${e.c || '–'} ${POSNAME[e.p] || ''}</span>`;
+    b.addEventListener('click', () => { picks[dlgNum] = e.w; savePicks(); renderDlgList(); renderPegs(); });
+    list.appendChild(b);
+  });
+}
+$('#dlg-filter').addEventListener('input', renderDlgList);
+$('#dlg-default').addEventListener('click', () => { delete picks[dlgNum]; savePicks(); renderDlgList(); renderPegs(); });
+$('#dlg-close').addEventListener('click', () => dlg.close());
+
+/* ---------- trainer (Leitner) ---------- */
+const LS_TRAIN = 'major.train.v1';
+const INTERVALS_H = { 1: 0, 2: 8, 3: 24, 4: 72, 5: 168 };
+let train = JSON.parse(localStorage.getItem(LS_TRAIN) || '{"cards":{}}');
+const saveTrain = () => localStorage.setItem(LS_TRAIN, JSON.stringify(train));
+let session = { asked: 0, correct: 0, streak: 0 };
+let curCard = null, answered = false;
+
+function card(num) {
+  if (!train.cards[num]) train.cards[num] = { box: 1, due: 0, seen: 0, right: 0 };
+  return train.cards[num];
+}
+function dueCards() {
+  const len = +$('#train-range').value;
+  const now = Date.now();
+  return numbersInRange(len).filter(n => card(n).due <= now);
+}
+function pickNext() {
+  const due = dueCards();
+  const pool = due.length ? due : numbersInRange(+$('#train-range').value);
+  // prefer low boxes, then least-seen
+  pool.sort((a, b) => (card(a).box - card(b).box) || (card(a).seen - card(b).seen) || (Math.random() - 0.5));
+  const next = pool.find(n => n !== curCard) ?? pool[0];
+  return next;
+}
+function showCard(num) {
+  curCard = num; answered = false;
+  $('#train-num').textContent = num;
+  $('#train-in').value = '';
+  $('#train-in').disabled = false;
+  $('#train-fb').textContent = '';
+  $('#train-fb').className = 'train-feedback';
+  $('#train-ans').innerHTML = '';
+  $('#train-in').focus();
+  trainStats();
+}
+function trainStats() {
+  $('#st-due').textContent = dueCards().length;
+  $('#st-acc').textContent = session.asked ? Math.round(100 * session.correct / session.asked) + '%' : '–';
+  $('#st-streak').textContent = session.streak;
+  const len = +$('#train-range').value;
+  const nums = numbersInRange(len);
+  const boxes = [0, 0, 0, 0, 0, 0];
+  nums.forEach(n => boxes[card(n).box]++);
+  $('#st-mastered').textContent = boxes[4] + boxes[5];
+  const bar = $('#boxbar');
+  bar.innerHTML = '';
+  for (let b = 1; b <= 5; b++) {
+    const d = document.createElement('div');
+    d.className = 'b' + b;
+    d.style.width = (100 * boxes[b] / nums.length) + '%';
+    d.title = `box ${b}: ${boxes[b]}`;
+    bar.appendChild(d);
+  }
+}
+function grade(correct) {
+  if (answered || !curCard) return;
+  answered = true;
+  const c = card(curCard);
+  c.seen++;
+  session.asked++;
+  if (correct) {
+    c.right++; c.box = Math.min(5, c.box + 1);
+    session.correct++; session.streak++;
+  } else {
+    c.box = 1;
+    session.streak = 0;
+  }
+  c.due = Date.now() + INTERVALS_H[c.box] * 3600e3;
+  saveTrain();
+  const peg = currentPeg(curCard);
+  const others = candidates(curCard).slice(0, 6).map(e => e.w).filter(w => w !== (peg && peg.w));
+  $('#train-ans').innerHTML =
+    `${peg ? peg.w : '—'}<span class="alts">also: ${others.slice(0, 5).join(', ')}</span>`;
+  $('#train-in').disabled = true;
+  trainStats();
+}
+function checkAnswer() {
+  if (!curCard || answered) return;
+  const guess = $('#train-in').value.trim().toLowerCase();
+  if (!guess) { grade(false); markFb(false, 'No answer — shown below.'); return; }
+  const e = BY_WORD.get(guess);
+  const ok = !!e && e.d === curCard;
+  const peg = currentPeg(curCard);
+  grade(ok);
+  if (ok) markFb(true, peg && guess === peg.w ? 'Exact peg! ✓' : `✓ “${guess}” encodes ${curCard}`);
+  else if (e) markFb(false, `“${guess}” encodes ${e.d}, not ${curCard}`);
+  else markFb(false, `“${guess}” isn’t in the dictionary`);
+}
+function markFb(good, msg) {
+  const fb = $('#train-fb');
+  fb.textContent = msg;
+  fb.className = 'train-feedback ' + (good ? 'good' : 'bad');
+}
+$('#train-in').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { answered ? showCard(pickNext()) : checkAnswer(); }
+});
+// After grading the input is disabled and loses key events — catch Enter globally.
+// (Skip events from the input itself: its own handler already dealt with them.)
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && answered && e.target.id !== 'train-in' &&
+      !$('#tab-train').hidden && !dlg.open) {
+    showCard(pickNext());
+  }
+});
+$('#train-show').addEventListener('click', () => { grade(false); markFb(false, 'Shown — try to recall it next time.'); });
+$('#train-next').addEventListener('click', () => showCard(pickNext()));
+$('#train-range').addEventListener('change', () => { showCard(pickNext()); });
+$('#train-reset').addEventListener('click', () => {
+  if (!confirm('Reset all training progress?')) return;
+  train = { cards: {} }; saveTrain();
+  session = { asked: 0, correct: 0, streak: 0 };
+  showCard(pickNext());
+});
+let trainStarted = false;
+function trainInit() {
+  if (!trainStarted) { trainStarted = true; showCard(pickNext()); }
+  else trainStats();
+}
+
+/* ---------- reference table ---------- */
+{
+  const ROWS = [
+    ['0', 's, z', '“z” is the first sound of zero', 'sea = 0, sauce = 00'],
+    ['1', 't, d, th', 'a t has one downstroke', 'tie = 1, dot = 11'],
+    ['2', 'n', 'n has two downstrokes', 'moon → the n = 2'],
+    ['3', 'm', 'm has three downstrokes', 'ma = 3, mime = 33'],
+    ['4', 'r', 'four ends in r', 'rye = 4, rear = 44'],
+    ['5', 'l', 'Roman L = 50', 'law = 5, lily = 55'],
+    ['6', 'ch, j, sh, zh', 'script j has a lower loop like 6', 'shoe = 6, judge = 66'],
+    ['7', 'k, g (hard), ng', 'K looks like two 7s', 'cow = 7, cake = 77'],
+    ['8', 'f, v', 'cursive f has two loops like 8', 'ivy = 8, fife = 88'],
+    ['9', 'p, b', 'p is a mirrored 9', 'bee = 9, puppy = 99'],
+  ];
+  $('#ref-table').innerHTML = ROWS.map(r =>
+    `<tr><td class="digit">${r[0]}</td><td>${r[1]}</td><td class="m">${r[2]}</td><td class="m">${r[3]}</td></tr>`).join('');
+}
+
+/* demo content on load */
+$('#enc-in').value = '31415926';
+renderEncode();
+</script>
+</body>
+</html>
