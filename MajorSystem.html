@@ -151,7 +151,21 @@
     <h2>Number → words</h2>
     <p class="hint">Type any number (spaces and punctuation ignored). Click a word to swap alternatives for that chunk.</p>
     <input type="text" id="enc-in" inputmode="numeric" placeholder="e.g. 3141592653 or your phone number" autocomplete="off" />
+    <div class="row" style="margin-top:0.5rem">
+      <span class="hint" style="margin:0">try:</span>
+      <button class="btn preset" data-n="31415926535897932384">π · 20 digits</button>
+      <button class="btn preset" data-n="27182818284590452353">e · 20 digits</button>
+      <button class="btn preset" data-n="14142135623730950488">√2 · 20 digits</button>
+      <button class="btn" id="enc-practice" disabled>Practice recall</button>
+    </div>
     <div id="enc-out"></div>
+    <div id="practice" hidden style="border-top:1px solid var(--line); margin-top:0.8rem; padding-top:0.8rem">
+      <p class="hint">Read the words, then type the number back from their sounds.
+        <label><input type="checkbox" id="prac-hide" /> hide words (full recall)</label></p>
+      <div id="prac-words" style="font-size:1.25rem; font-weight:700; margin:0.4rem 0"></div>
+      <input type="text" id="prac-in" inputmode="numeric" placeholder="the number…" autocomplete="off" />
+      <div class="train-feedback" id="prac-fb" style="margin-top:0.4rem"></div>
+    </div>
   </div>
   <div class="card">
     <h2>Words → number</h2>
@@ -191,6 +205,10 @@
       <select id="train-range" class="btn">
         <option value="1">0–9</option>
         <option value="2" selected>00–99</option>
+      </select>
+      <select id="train-mode" class="btn">
+        <option value="n2w" selected>number → word</option>
+        <option value="w2n">word → number</option>
       </select>
       <button class="btn" id="train-reset">Reset progress</button>
     </div>
@@ -360,6 +378,7 @@ function renderEncode() {
   const out = $('#enc-out');
   out.innerHTML = '';
   closePop();
+  syncPractice();
   if (!digits) return;
   if (digits.length > 40) { out.innerHTML = '<p class="hint">Keep it under 40 digits.</p>'; return; }
   const segs = segmentations(digits);
@@ -414,6 +433,54 @@ function openAltPop(anchor, piece, onPick) {
   altPop = pop;
 }
 $('#enc-in').addEventListener('input', renderEncode);
+$$('.preset').forEach(b => b.addEventListener('click', () => {
+  $('#enc-in').value = b.dataset.n;
+  renderEncode();
+}));
+
+/* practice recall of the currently encoded number */
+let pracDigits = '', pracWords = [];
+function syncPractice() {
+  const digits = $('#enc-in').value.replace(/\D/g, '');
+  $('#enc-practice').disabled = !digits;
+  if ($('#practice').hidden) return;
+  if (digits !== pracDigits) $('#practice').hidden = true; // number changed → stale
+}
+$('#enc-practice').addEventListener('click', () => {
+  pracDigits = $('#enc-in').value.replace(/\D/g, '');
+  const segs = segmentations(pracDigits, 1);
+  if (!segs.length) return;
+  pracWords = segs[0].words.map(x => x.e.w);
+  $('#practice').hidden = false;
+  $('#prac-hide').checked = false;
+  renderPracWords();
+  $('#prac-in').value = '';
+  $('#prac-fb').textContent = '';
+  $('#prac-fb').className = 'train-feedback';
+  $('#prac-in').focus();
+});
+function renderPracWords() {
+  $('#prac-words').textContent = $('#prac-hide').checked
+    ? '· '.repeat(pracWords.length).trim()
+    : pracWords.join(' · ');
+}
+$('#prac-hide').addEventListener('change', renderPracWords);
+$('#prac-in').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const guess = $('#prac-in').value.replace(/\D/g, '');
+  if (!guess) return;
+  const fb = $('#prac-fb');
+  if (guess === pracDigits) {
+    fb.textContent = `✓ ${pracDigits} — nailed it`;
+    fb.className = 'train-feedback good';
+  } else {
+    // show where the first mismatch is
+    let i = 0;
+    while (i < guess.length && i < pracDigits.length && guess[i] === pracDigits[i]) i++;
+    fb.textContent = `✗ diverges at digit ${i + 1}: you said …${guess.slice(Math.max(0, i - 2), i + 3) || '∅'}, number is …${pracDigits.slice(Math.max(0, i - 2), i + 3)}`;
+    fb.className = 'train-feedback bad';
+  }
+});
 
 /* ---------- decode: words -> digits ---------- */
 const LETTER_FALLBACK = [ // spelling-based approximation, digraphs first
@@ -543,9 +610,21 @@ function pickNext() {
   const next = pool.find(n => n !== curCard) ?? pool[0];
   return next;
 }
+let trainMode = 'n2w';
 function showCard(num) {
   curCard = num; answered = false;
-  $('#train-num').textContent = num;
+  if (trainMode === 'w2n') {
+    const peg = currentPeg(num);
+    $('#train-num').textContent = peg ? peg.w : num;
+    $('#train-num').style.fontSize = '3rem';
+    $('#train-in').placeholder = 'the number…';
+    $('#train-in').inputMode = 'numeric';
+  } else {
+    $('#train-num').textContent = num;
+    $('#train-num').style.fontSize = '';
+    $('#train-in').placeholder = 'your word…';
+    $('#train-in').inputMode = 'text';
+  }
   $('#train-in').value = '';
   $('#train-in').disabled = false;
   $('#train-fb').textContent = '';
@@ -553,6 +632,14 @@ function showCard(num) {
   $('#train-ans').innerHTML = '';
   $('#train-in').focus();
   trainStats();
+}
+function checkReverse(guess) {
+  const digits = guess.replace(/\D/g, '');
+  const ok = digits === curCard;
+  grade(ok);
+  const peg = currentPeg(curCard);
+  if (ok) markFb(true, `✓ ${peg ? peg.w : ''} = ${curCard}`);
+  else markFb(false, `No — “${peg ? peg.w : ''}” encodes ${curCard}`);
 }
 function trainStats() {
   $('#st-due').textContent = dueCards().length;
@@ -589,16 +676,22 @@ function grade(correct) {
   c.due = Date.now() + INTERVALS_H[c.box] * 3600e3;
   saveTrain();
   const peg = currentPeg(curCard);
-  const others = candidates(curCard).slice(0, 6).map(e => e.w).filter(w => w !== (peg && peg.w));
-  $('#train-ans').innerHTML =
-    `${peg ? peg.w : '—'}<span class="alts">also: ${others.slice(0, 5).join(', ')}</span>`;
+  if (trainMode === 'w2n') {
+    $('#train-ans').innerHTML =
+      `${curCard}<span class="alts">${peg ? peg.w : ''} → ${curCard}</span>`;
+  } else {
+    const others = candidates(curCard).slice(0, 6).map(e => e.w).filter(w => w !== (peg && peg.w));
+    $('#train-ans').innerHTML =
+      `${peg ? peg.w : '—'}<span class="alts">also: ${others.slice(0, 5).join(', ')}</span>`;
+  }
   $('#train-in').disabled = true;
   trainStats();
 }
 function checkAnswer() {
   if (!curCard || answered) return;
   const guess = $('#train-in').value.trim().toLowerCase();
-  if (!guess) { grade(false); markFb(false, 'No answer — shown below.'); return; }
+  if (!guess) return; // accidental Enter shouldn't count against you
+  if (trainMode === 'w2n') { checkReverse(guess); return; }
   const e = BY_WORD.get(guess);
   const ok = !!e && e.d === curCard;
   const peg = currentPeg(curCard);
@@ -623,9 +716,13 @@ document.addEventListener('keydown', e => {
     showCard(pickNext());
   }
 });
-$('#train-show').addEventListener('click', () => { grade(false); markFb(false, 'Shown — try to recall it next time.'); });
+$('#train-show').addEventListener('click', () => {
+  if (answered) return;
+  grade(false); markFb(false, 'Shown — try to recall it next time.');
+});
 $('#train-next').addEventListener('click', () => showCard(pickNext()));
 $('#train-range').addEventListener('change', () => { showCard(pickNext()); });
+$('#train-mode').addEventListener('change', () => { trainMode = $('#train-mode').value; showCard(pickNext()); });
 $('#train-reset').addEventListener('click', () => {
   if (!confirm('Reset all training progress?')) return;
   train = { cards: {} }; saveTrain();

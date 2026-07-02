@@ -11,9 +11,9 @@ needed — the dataset ships alongside it in `MajorSystemData.js`).
 
 | Tab | What you get |
 |---|---|
-| **Encode** | Type any number → the best word sequences that phonetically spell it, found by a k-best dynamic-programming segmentation. Click any word chip to swap in alternatives. A reverse box decodes words back to digits. |
+| **Encode** | Type any number → the best word sequences that phonetically spell it, found by a k-best dynamic-programming segmentation. Click any word chip to swap in alternatives. Presets for 20 digits of π, e, √2. **Practice recall** hides the number and checks you can reproduce it from the words (telling you exactly where you diverged). A reverse box decodes words back to digits. |
 | **Peg list** | A ranked 0–9 / 00–99 peg list — the best mnemonic word for every number. Click a cell to pick from ~60 alternates (choices persist in localStorage). Copy or print your list. |
-| **Train** | Leitner-box flashcards on your peg list. Type the word for the shown number; *any* dictionary word that encodes the number counts, and your chosen peg (plus alternates) is revealed after each answer. Progress persists locally. |
+| **Train** | Leitner-box flashcards on your peg list, in both directions: *number → word* (recall a peg; any dictionary word that encodes the number counts) and *word → number* (decode a word's sounds back to digits). Your peg and alternates are revealed after each answer. Progress persists locally. |
 | **Reference** | The digit→sound table with memory hooks, and dataset provenance. |
 
 ## Why the words are good
