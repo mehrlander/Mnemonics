@@ -63,7 +63,7 @@ const POS_MAP = { Noun: 'N', Verb: 'V', Adjective: 'J', Adverb: 'A', Name: 'M' }
     if (f[1] !== '0') continue; // skip bigrams (two-word entries)
     const c = parseFloat(f[2]);
     const known = parseFloat(f[6]);
-    if (!Number.isFinite(c) || known < 0.85) continue;
+    if (!Number.isFinite(c) || !(known >= 0.85)) continue; // NaN known → reject, not accept
     conc.set(w, { c, pos: POS_MAP[f[8]] || '?' });
   }
 }
@@ -73,6 +73,19 @@ readFileSync('google10k.txt', 'utf8').trim().split(/\r?\n/).forEach((w, i) => g1
 
 const dwyl = new Set(Object.keys(JSON.parse(readFileSync('dwyl.json', 'utf8'))).map(w => w.toLowerCase()));
 
+// Alternate pronunciations: the npm package keys variants as "word(1)", "word(2)".
+// Collect the digit strings that differ from the primary so the app can accept
+// e.g. both 82 and 812 for "often".
+const altDigits = new Map();
+for (const [key, pron] of Object.entries(dictionary)) {
+  const m = key.match(/^([a-z]+)\((\d)\)$/);
+  if (!m) continue;
+  const d = toDigits(pron);
+  if (!d || d.length > 10) continue;
+  if (!altDigits.has(m[1])) altDigits.set(m[1], new Set());
+  altDigits.get(m[1]).add(d);
+}
+
 // --- Build entries ---
 const entries = [];
 let skippedNonWord = 0, skippedNoDigits = 0, skippedObscure = 0;
@@ -81,6 +94,7 @@ for (const [word, pron] of Object.entries(dictionary)) {
   if (word.length < 2 || word.length > 14) { skippedNonWord++; continue; }
   const digits = toDigits(pron);
   if (!digits || digits.length > 10) { skippedNoDigits++; continue; }
+  const alts = [...(altDigits.get(word) || [])].filter(d => d !== digits);
 
   const z = zipfOf(word);
   const cc = conc.get(word);
@@ -100,34 +114,55 @@ for (const [word, pron] of Object.entries(dictionary)) {
   const zipf = z === null ? 0 : Math.round(z * 10) / 10;
   const c = cc ? Math.round(cc.c * 10) / 10 : 0;
   const pos = cc ? cc.pos : '?';
-  entries.push({ word, digits, zipf, c, pos });
+  entries.push({ word, digits, zipf, c, pos, alts });
 }
 
-// Sort: by digits, then by a default score desc (app re-scores, but a sane order helps)
-const score = (e) =>
-  (e.zipf / 7) * 0.45 +
-  (e.c ? ((e.c - 1) / 4) * 0.45 : 0.10) +
-  (e.pos === 'N' ? 0.12 : 0) -
-  Math.max(0, e.word.length - 8) * 0.01;
-entries.sort((a, b) => a.digits === b.digits ? score(b) - score(a) : a.digits.localeCompare(b.digits));
+// Order by digits, then zipf desc. Ranking is the app's job (pegScore there is
+// the single scoring authority); the file order is only for readability.
+entries.sort((a, b) => a.digits === b.digits ? b.zipf - a.zipf : a.digits.localeCompare(b.digits));
 
 console.log(`entries: ${entries.length}`);
 console.log(`skipped: nonword=${skippedNonWord} nodigits=${skippedNoDigits} obscure=${skippedObscure}`);
+console.log(`entries with alt pronunciations: ${entries.filter(e => e.alts.length).length}`);
 
-// Coverage check: every 2-digit number 00–99 should have candidates
+// Words the app must never SUGGEST (still fine to decode): number words that
+// clash with the digits they name, and profanity. Shipped in meta so the app
+// and this check share one list. The app additionally blocks plural/inflected
+// forms of these via suffix stripping.
+const CONFUSING = [
+  'one','two','three','four','five','six','seven','eight','nine','ten','zero',
+  'eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen',
+  'twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety',
+  'hundred','thousand','million','billion','trillion',
+  'shit','fuck','fucker','fucking','cunt','nigger','faggot','bitch','asshole','dick','pussy',
+];
+const confusingSet = new Set(CONFUSING);
+const suggestible = (e) =>
+  !confusingSet.has(e.word) &&
+  !confusingSet.has(e.word.replace(/s$/, '')) &&
+  !confusingSet.has(e.word.replace(/es$/, ''));
+
+// Coverage check: every 1- and 2-digit number needs suggestible candidates,
+// or pegs/trainer break. Fail the build loudly if not.
 const byDigits = new Map();
 for (const e of entries) {
   if (!byDigits.has(e.digits)) byDigits.set(e.digits, []);
   byDigits.get(e.digits).push(e);
 }
-let missing2 = [], thin2 = [];
-for (let i = 0; i < 100; i++) {
-  const k = String(i).padStart(2, '0');
-  const n = (byDigits.get(k) || []).length;
-  if (n === 0) missing2.push(k);
-  else if (n < 5) thin2.push(`${k}(${n})`);
+let missing = [], thin2 = [];
+for (const len of [1, 2]) {
+  for (let i = 0; i < 10 ** len; i++) {
+    const k = String(i).padStart(len, '0');
+    const n = (byDigits.get(k) || []).filter(suggestible).length;
+    if (n === 0) missing.push(k);
+    else if (len === 2 && n < 5) thin2.push(`${k}(${n})`);
+  }
 }
-console.log('2-digit coverage: missing =', missing2.length ? missing2.join(',') : 'none');
+if (missing.length) {
+  console.error(`FATAL: no suggestible candidates for: ${missing.join(',')}`);
+  process.exitCode = 1;
+}
+console.log('1+2-digit coverage: missing =', missing.length ? missing.join(',') : 'none');
 console.log('2-digit thin (<5):', thin2.length ? thin2.join(' ') : 'none');
 let missing3 = 0;
 for (let i = 0; i < 1000; i++) {
@@ -143,18 +178,21 @@ for (const w of ['tie', 'noah', 'ma', 'rye', 'law', 'shoe', 'cow', 'ivy', 'bee',
 }
 
 // --- Emit compact data file ---
-const rows = entries.map(e => [e.word, e.digits, e.zipf || '', e.c || '', e.pos === '?' ? '' : e.pos].join('|'));
+const rows = entries.map(e => [
+  e.word, e.digits, e.zipf || '', e.c || '', e.pos === '?' ? '' : e.pos, e.alts.join(','),
+].join('|'));
 const payload = {
   meta: {
     words: entries.length,
     sources: 'CMUdict (phonemes) · SUBTLEX-US (Zipf frequency) · Brysbaert et al. 2014 (concreteness, POS) · google-10k · dwyl/english-words',
     mapping: '0=s,z 1=t,d,th 2=n 3=m 4=r 5=l 6=ch,j,sh 7=k,g,ng 8=f,v 9=p,b',
-    fields: 'word|digits|zipf|concreteness|pos(N,V,J,A,M)',
+    fields: 'word|digits|zipf|concreteness|pos(N,V,J,A,M)|altDigits(comma-sep)',
+    confusing: CONFUSING,
   },
   rows: rows.join('\n'),
 };
 const js = '// Generated by tools/build-major-data.mjs — do not edit by hand.\n' +
-  '// word|digits|zipf|concreteness|pos, one per line in .rows\n' +
+  '// word|digits|zipf|concreteness|pos|altDigits, one per line in .rows\n' +
   'window.MAJOR_DATA = ' + JSON.stringify(payload) + ';\n';
 writeFileSync('MajorSystemData.js', js);
 console.log(`wrote MajorSystemData.js (${(js.length / 1024).toFixed(0)} KB)`);

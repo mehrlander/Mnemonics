@@ -42,6 +42,7 @@
     background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
   }
   input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input[readonly] { opacity: 0.55; }
   .btn {
     appearance: none; font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px;
     border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 0.45rem 0.9rem;
@@ -271,23 +272,41 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
 /* ---------- data ---------- */
-const ENTRIES = [];          // {w, d, z, c, p}
+const ENTRIES = [];          // {w, d, z, c, p, a: [altDigits]}
 const BY_DIGITS = new Map(); // digits -> entries (peg-sorted lazily)
 const BY_WORD = new Map();   // word -> entry
 {
   const rows = window.MAJOR_DATA.rows.split('\n');
   for (const r of rows) {
-    const [w, d, z, c, p] = r.split('|');
-    const e = { w, d, z: +z || 0, c: +c || 0, p: p || '?' };
+    const [w, d, z, c, p, a] = r.split('|');
+    const e = { w, d, z: +z || 0, c: +c || 0, p: p || '?', a: a ? a.split(',') : null };
     ENTRIES.push(e);
     BY_WORD.set(w, e);
     let arr = BY_DIGITS.get(d);
     if (!arr) BY_DIGITS.set(d, arr = []);
     arr.push(e);
+    if (e.a) for (const alt of e.a) {
+      let aa = BY_DIGITS.get(alt);
+      if (!aa) BY_DIGITS.set(alt, aa = []);
+      aa.push(e);
+    }
   }
+  window.MAJOR_DATA.rows = ''; // parsed — free the ~850KB source string
   $('#data-stat').textContent = `${ENTRIES.length.toLocaleString()} words loaded.`;
   $('#ref-data').textContent =
     `${ENTRIES.length.toLocaleString()} words · ${window.MAJOR_DATA.meta.sources}. Mapping: ${window.MAJOR_DATA.meta.mapping}.`;
+}
+
+/* localStorage helpers: a corrupted value must never brick the app. */
+function loadLS(key, validate) {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || 'null');
+    if (v && typeof v === 'object' && (!validate || validate(v))) return v;
+  } catch { /* corrupted — fall through to default */ }
+  return null;
+}
+function saveLS(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full/blocked */ }
 }
 
 /* Scores. zipf ∈ [0,7.5], concreteness ∈ [1,5] (0 = unknown). */
@@ -302,19 +321,17 @@ const encScore = e =>
   (e.p === 'N' ? 0.08 : 0) + (e.p === 'M' ? -0.05 : 0);
 
 /* Number-words are phonetically valid but hopelessly confusing as mnemonics
-   ("five" encodes 88, not 5) — keep them for decoding, hide them as suggestions. */
-const CONFUSING = new Set([
-  'one','two','three','four','five','six','seven','eight','nine','ten','zero',
-  'eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen',
-  'twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety',
-  'hundred','thousand','million','billion','trillion',
-  'shit','fuck','fucker','fucking','cunt','nigger','faggot','bitch','asshole','dick','pussy',
-]);
+   ("five" encodes 88, not 5) — keep them for decoding, hide them as suggestions.
+   The list ships with the dataset (meta.confusing); suffix stripping also
+   catches inflected forms ("millions", "fives"). */
+const CONFUSING = new Set(window.MAJOR_DATA.meta.confusing || []);
+const isConfusing = w =>
+  CONFUSING.has(w) || CONFUSING.has(w.replace(/s$/, '')) || CONFUSING.has(w.replace(/es$/, ''));
 const sortedCache = new Map();
 function candidates(digits, { nounsOnly = false } = {}) {
   let arr = sortedCache.get(digits);
   if (!arr) {
-    arr = (BY_DIGITS.get(digits) || []).filter(e => !CONFUSING.has(e.w))
+    arr = (BY_DIGITS.get(digits) || []).filter(e => !isConfusing(e.w))
       .sort((a, b) => pegScore(b) - pegScore(a));
     sortedCache.set(digits, arr);
   }
@@ -373,27 +390,37 @@ let altPop = null;
 function closePop() { if (altPop) { altPop.remove(); altPop = null; } }
 document.addEventListener('click', e => { if (altPop && !altPop.contains(e.target)) closePop(); }, true);
 
+let lastSegs = [], lastSegDigits = '';
+function fillChip(chip, wp) {
+  chip.innerHTML = `<b>${wp.e.w}</b><span>${wp.piece}</span>`;
+  chip.title = metaLine(wp.e);
+}
 function renderEncode() {
   const digits = $('#enc-in').value.replace(/\D/g, '');
   const out = $('#enc-out');
   out.innerHTML = '';
   closePop();
+  lastSegs = []; lastSegDigits = digits;
   syncPractice();
   if (!digits) return;
   if (digits.length > 40) { out.innerHTML = '<p class="hint">Keep it under 40 digits.</p>'; return; }
   const segs = segmentations(digits);
   if (!segs.length) { out.innerHTML = '<p class="hint">No segmentation found.</p>'; return; }
+  // The DP shares word objects across beam rows (common prefixes); give each
+  // rendered row its own copies so swapping a chip can't mutate other rows.
+  segs.forEach(seg => { seg.words = seg.words.map(wp => ({ ...wp })); });
+  lastSegs = segs;
+  syncPractice();
   segs.forEach((seg, i) => {
     const div = document.createElement('div');
     div.className = 'seg';
-    seg.words.forEach((wp, j) => {
+    seg.words.forEach(wp => {
       const chip = document.createElement('button');
       chip.className = 'wordchip';
-      chip.innerHTML = `<b>${wp.e.w}</b><span>${wp.piece}</span>`;
-      chip.title = metaLine(wp.e);
+      fillChip(chip, wp);
       chip.addEventListener('click', ev => {
         ev.stopPropagation();
-        openAltPop(chip, wp.piece, alt => { wp.e = alt; renderSegRow(div, seg, i); });
+        openAltPop(chip, wp.piece, alt => { wp.e = alt; fillChip(chip, wp); });
       });
       div.appendChild(chip);
     });
@@ -406,15 +433,9 @@ function renderEncode() {
     out.appendChild(div);
   });
 }
-function renderSegRow(div, seg) {
-  div.querySelectorAll('.wordchip').forEach((chip, j) => {
-    const wp = seg.words[j];
-    chip.innerHTML = `<b>${wp.e.w}</b><span>${wp.piece}</span>`;
-    chip.title = metaLine(wp.e);
-  });
-}
 const POSNAME = { N: 'noun', V: 'verb', J: 'adj', A: 'adv', M: 'name', '?': '' };
 const metaLine = e => `zipf ${e.z || '–'} · concreteness ${e.c || '–'} ${POSNAME[e.p] ? '· ' + POSNAME[e.p] : ''}`;
+const metaShort = e => `z${e.z || '–'} c${e.c || '–'} ${POSNAME[e.p] || ''}`;
 
 function openAltPop(anchor, piece, onPick) {
   closePop();
@@ -422,7 +443,7 @@ function openAltPop(anchor, piece, onPick) {
   pop.className = 'alt-pop';
   candidates(piece).slice(0, 25).forEach(e => {
     const b = document.createElement('button');
-    b.innerHTML = `${e.w} <span class="meta">${e.c ? 'c' + e.c : ''}${e.p === 'N' ? ' n' : ''}</span>`;
+    b.innerHTML = `${e.w} <span class="meta">${metaShort(e)}</span>`;
     b.addEventListener('click', () => { onPick(e); closePop(); });
     pop.appendChild(b);
   });
@@ -441,16 +462,16 @@ $$('.preset').forEach(b => b.addEventListener('click', () => {
 /* practice recall of the currently encoded number */
 let pracDigits = '', pracWords = [];
 function syncPractice() {
-  const digits = $('#enc-in').value.replace(/\D/g, '');
-  $('#enc-practice').disabled = !digits;
+  // practice follows the rendered segmentation, so it shares the same guards
+  $('#enc-practice').disabled = !lastSegs.length;
   if ($('#practice').hidden) return;
-  if (digits !== pracDigits) $('#practice').hidden = true; // number changed → stale
+  if (lastSegDigits !== pracDigits) $('#practice').hidden = true; // number changed → stale
 }
 $('#enc-practice').addEventListener('click', () => {
-  pracDigits = $('#enc-in').value.replace(/\D/g, '');
-  const segs = segmentations(pracDigits, 1);
-  if (!segs.length) return;
-  pracWords = segs[0].words.map(x => x.e.w);
+  if (!lastSegs.length) return;
+  pracDigits = lastSegDigits;
+  // use the displayed best row, including any words the user swapped in
+  pracWords = lastSegs[0].words.map(x => x.e.w);
   $('#practice').hidden = false;
   $('#prac-hide').checked = false;
   renderPracWords();
@@ -502,7 +523,7 @@ $('#dec-in').addEventListener('input', () => {
     const w = t.toLowerCase().replace(/[^a-z']/g, '');
     const e = BY_WORD.get(w);
     const span = document.createElement('span');
-    if (e) { span.textContent = e.d + ' '; span.title = w; }
+    if (e) { span.textContent = e.d + ' '; span.title = e.a ? `${w} (also ${e.a.join(', ')})` : w; }
     else if (w) { span.innerHTML = `<span class="unk" title="not in dictionary — spelling approximation">≈${spellDigits(w)}</span> `; }
     out.appendChild(span);
   });
@@ -510,8 +531,18 @@ $('#dec-in').addEventListener('input', () => {
 
 /* ---------- pegs ---------- */
 const LS_PICKS = 'major.pegPicks.v1';
-const picks = JSON.parse(localStorage.getItem(LS_PICKS) || '{}');
-const savePicks = () => localStorage.setItem(LS_PICKS, JSON.stringify(picks));
+const picks = loadLS(LS_PICKS, v => !Array.isArray(v)) || {};
+const savePicks = () => saveLS(LS_PICKS, picks);
+
+/* persist the "nouns only" preference (it shapes pegs AND trainer prompts) */
+const LS_NOUNS = 'major.nounsOnly.v1';
+{
+  const saved = localStorage.getItem(LS_NOUNS);
+  if (saved !== null) $('#peg-nouns').checked = saved === '1';
+}
+$('#peg-nouns').addEventListener('change', () => {
+  try { localStorage.setItem(LS_NOUNS, $('#peg-nouns').checked ? '1' : '0'); } catch {}
+});
 
 function numbersInRange(len) {
   const out = [];
@@ -576,7 +607,7 @@ function renderDlgList() {
   candidates(dlgNum).filter(e => !filter || e.w.includes(filter)).slice(0, 60).forEach(e => {
     const b = document.createElement('button');
     if (cur && e.w === cur.w) b.className = 'sel';
-    b.innerHTML = `<span>${e.w}</span><span class="meta">z${e.z || '–'} c${e.c || '–'} ${POSNAME[e.p] || ''}</span>`;
+    b.innerHTML = `<span>${e.w}</span><span class="meta">${metaShort(e)}</span>`;
     b.addEventListener('click', () => { picks[dlgNum] = e.w; savePicks(); renderDlgList(); renderPegs(); });
     list.appendChild(b);
   });
@@ -588,14 +619,23 @@ $('#dlg-close').addEventListener('click', () => dlg.close());
 /* ---------- trainer (Leitner) ---------- */
 const LS_TRAIN = 'major.train.v1';
 const INTERVALS_H = { 1: 0, 2: 8, 3: 24, 4: 72, 5: 168 };
-let train = JSON.parse(localStorage.getItem(LS_TRAIN) || '{"cards":{}}');
-const saveTrain = () => localStorage.setItem(LS_TRAIN, JSON.stringify(train));
+let train = loadLS(LS_TRAIN, v => v.cards && typeof v.cards === 'object' && !Array.isArray(v.cards))
+  || { cards: {} };
+const saveTrain = () => saveLS(LS_TRAIN, train);
 let session = { asked: 0, correct: 0, streak: 0 };
-let curCard = null, answered = false;
+let curCard = null, curPrompt = '', answered = false;
+const trainMode = () => $('#train-mode').value;
 
 function card(num) {
-  if (!train.cards[num]) train.cards[num] = { box: 1, due: 0, seen: 0, right: 0 };
-  return train.cards[num];
+  let c = train.cards[num];
+  // sanitize: box must be 1–5 and numeric fields finite, or intervals/stats break
+  if (!c || !(c.box >= 1 && c.box <= 5)) {
+    c = train.cards[num] = { box: 1, due: 0, seen: 0, right: 0 };
+  }
+  if (!Number.isFinite(c.due)) c.due = 0;
+  if (!Number.isFinite(c.seen)) c.seen = 0;
+  if (!Number.isFinite(c.right)) c.right = 0;
+  return c;
 }
 function dueCards() {
   const len = +$('#train-range').value;
@@ -610,23 +650,24 @@ function pickNext() {
   const next = pool.find(n => n !== curCard) ?? pool[0];
   return next;
 }
-let trainMode = 'n2w';
 function showCard(num) {
   curCard = num; answered = false;
-  if (trainMode === 'w2n') {
+  if (trainMode() === 'w2n') {
     const peg = currentPeg(num);
-    $('#train-num').textContent = peg ? peg.w : num;
+    curPrompt = peg ? peg.w : num; // freeze the prompt: pegs may change mid-card
+    $('#train-num').textContent = curPrompt;
     $('#train-num').style.fontSize = '3rem';
     $('#train-in').placeholder = 'the number…';
     $('#train-in').inputMode = 'numeric';
   } else {
+    curPrompt = num;
     $('#train-num').textContent = num;
     $('#train-num').style.fontSize = '';
     $('#train-in').placeholder = 'your word…';
     $('#train-in').inputMode = 'text';
   }
   $('#train-in').value = '';
-  $('#train-in').disabled = false;
+  $('#train-in').readOnly = false;
   $('#train-fb').textContent = '';
   $('#train-fb').className = 'train-feedback';
   $('#train-ans').innerHTML = '';
@@ -634,12 +675,12 @@ function showCard(num) {
   trainStats();
 }
 function checkReverse(guess) {
-  const digits = guess.replace(/\D/g, '');
-  const ok = digits === curCard;
+  // tolerate missing leading zeros: "5" is right for card "05"
+  const digits = guess.replace(/\D/g, '').replace(/^0+(?=.)/, '');
+  const ok = digits.padStart(curCard.length, '0') === curCard;
   grade(ok);
-  const peg = currentPeg(curCard);
-  if (ok) markFb(true, `✓ ${peg ? peg.w : ''} = ${curCard}`);
-  else markFb(false, `No — “${peg ? peg.w : ''}” encodes ${curCard}`);
+  if (ok) markFb(true, `✓ ${curPrompt} = ${curCard}`);
+  else markFb(false, `No — “${curPrompt}” encodes ${curCard}`);
 }
 function trainStats() {
   $('#st-due').textContent = dueCards().length;
@@ -675,46 +716,46 @@ function grade(correct) {
   }
   c.due = Date.now() + INTERVALS_H[c.box] * 3600e3;
   saveTrain();
-  const peg = currentPeg(curCard);
-  if (trainMode === 'w2n') {
+  if (trainMode() === 'w2n') {
     $('#train-ans').innerHTML =
-      `${curCard}<span class="alts">${peg ? peg.w : ''} → ${curCard}</span>`;
+      `${curCard}<span class="alts">${curPrompt} → ${curCard}</span>`;
   } else {
+    const peg = currentPeg(curCard);
     const others = candidates(curCard).slice(0, 6).map(e => e.w).filter(w => w !== (peg && peg.w));
     $('#train-ans').innerHTML =
       `${peg ? peg.w : '—'}<span class="alts">also: ${others.slice(0, 5).join(', ')}</span>`;
   }
-  $('#train-in').disabled = true;
+  $('#train-in').readOnly = true; // keep focus & key events; Enter advances
   trainStats();
 }
 function checkAnswer() {
   if (!curCard || answered) return;
   const guess = $('#train-in').value.trim().toLowerCase();
   if (!guess) return; // accidental Enter shouldn't count against you
-  if (trainMode === 'w2n') { checkReverse(guess); return; }
+  if (trainMode() === 'w2n') { checkReverse(guess); return; }
   const e = BY_WORD.get(guess);
-  const ok = !!e && e.d === curCard;
+  const ok = !!e && (e.d === curCard || (e.a && e.a.includes(curCard)));
   const peg = currentPeg(curCard);
   grade(ok);
-  if (ok) markFb(true, peg && guess === peg.w ? 'Exact peg! ✓' : `✓ “${guess}” encodes ${curCard}`);
-  else if (e) markFb(false, `“${guess}” encodes ${e.d}, not ${curCard}`);
-  else markFb(false, `“${guess}” isn’t in the dictionary`);
+  if (ok && isConfusing(guess)) {
+    markFb(true, `✓ technically, but number-words make confusing mnemonics — prefer “${peg ? peg.w : ''}”`);
+  } else if (ok) {
+    markFb(true, peg && guess === peg.w ? 'Exact peg! ✓' : `✓ “${guess}” encodes ${curCard}`);
+  } else if (e) {
+    markFb(false, `“${guess}” encodes ${e.d}, not ${curCard}`);
+  } else {
+    markFb(false, `“${guess}” isn’t in the dictionary`);
+  }
 }
 function markFb(good, msg) {
   const fb = $('#train-fb');
   fb.textContent = msg;
   fb.className = 'train-feedback ' + (good ? 'good' : 'bad');
 }
+// The input stays focused after grading (readOnly, not disabled), so this
+// single handler owns Enter in both states — no document-level listener.
 $('#train-in').addEventListener('keydown', e => {
   if (e.key === 'Enter') { answered ? showCard(pickNext()) : checkAnswer(); }
-});
-// After grading the input is disabled and loses key events — catch Enter globally.
-// (Skip events from the input itself: its own handler already dealt with them.)
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && answered && e.target.id !== 'train-in' &&
-      !$('#tab-train').hidden && !dlg.open) {
-    showCard(pickNext());
-  }
 });
 $('#train-show').addEventListener('click', () => {
   if (answered) return;
@@ -722,16 +763,15 @@ $('#train-show').addEventListener('click', () => {
 });
 $('#train-next').addEventListener('click', () => showCard(pickNext()));
 $('#train-range').addEventListener('change', () => { showCard(pickNext()); });
-$('#train-mode').addEventListener('change', () => { trainMode = $('#train-mode').value; showCard(pickNext()); });
+$('#train-mode').addEventListener('change', () => { showCard(pickNext()); });
 $('#train-reset').addEventListener('click', () => {
   if (!confirm('Reset all training progress?')) return;
   train = { cards: {} }; saveTrain();
   session = { asked: 0, correct: 0, streak: 0 };
   showCard(pickNext());
 });
-let trainStarted = false;
 function trainInit() {
-  if (!trainStarted) { trainStarted = true; showCard(pickNext()); }
+  if (curCard === null) showCard(pickNext());
   else trainStats();
 }
 

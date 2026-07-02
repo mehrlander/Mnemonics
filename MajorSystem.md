@@ -33,7 +33,9 @@ The dataset (38,269 words) joins four public sources:
 
 Ranking blends `0.45·frequency + 0.45·concreteness + noun bonus`, with penalties for proper
 names, unknown POS, and very long words. Number words (`five` encodes 88!) are excluded from
-suggestions as hopelessly confusing, though the decoder still understands them.
+suggestions as hopelessly confusing — including inflected forms like `millions` — though the
+decoder still understands them. Alternate CMU pronunciations are preserved (561 words), so
+the trainer accepts both `82` and `812` readings of “often”.
 
 ### Digit → sound mapping (classic)
 
